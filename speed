@@ -1,0 +1,892 @@
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+local playerName = LocalPlayer.Name
+
+local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
+local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
+
+local function CheckPermission(permName)
+    local function tryUrl(base)
+        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
+        local success, response = pcall(function()
+            return game:HttpGet(fullUrl)
+        end)
+        if not success then return nil end
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(response)
+        end)
+        if not ok or type(data) ~= "table" then return nil end
+        local perms = data.permissions or data
+        return perms[permName] == true
+    end
+    local result = tryUrl(API_BASE)
+    if result == nil then result = tryUrl(API_BACKUP) end
+    return result == true
+end
+
+if not CheckPermission("speed") then
+    return
+end
+
+-- ═══════════════════════════════════════════════════════════════
+--  7MD is back !  |  Premium Speed GUI V2.2
+--  Glassmorphism · Luxury Design · Auto Device Detection
+--  Price: $100 — Professional Grade
+-- ═══════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- =============================================
+-- [ SETTINGS ]
+-- =============================================
+local MIN_SPEED_GUI = 1
+local MAX_SPEED_GUI = 100
+local MIN_SPEED_CFRAME = 0.01
+local MAX_SPEED_CFRAME = 0.5
+local TOGGLE_KEY = Enum.KeyCode.C
+local HIDE_KEY = Enum.KeyCode.V
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1535329156135391332/NaCKNSL-XRYde1d5GftiXgmnkLeXa8W6LLQXjQYOm9UJaunl46r3hAOu4AVtJRPcB0EW"
+-- =============================================
+
+local isSpeedEnabled = false
+local currentSpeedValue = 10
+local moveConnection = nil
+local character, humanoid, rootPart
+local isGuiVisible = true
+local deviceType = "PC"
+
+-- ═════════════════════════════════════════════
+-- [ DEVICE DETECTION ]
+-- ═════════════════════════════════════════════
+local function detectDevice()
+    local touch = UserInputService.TouchEnabled
+    local keyboard = UserInputService.KeyboardEnabled
+    local mouse = UserInputService.MouseEnabled
+    if touch and not keyboard then return "Mobile" end
+    if keyboard and mouse then return "PC" end
+    if touch and keyboard then return "PC" end
+    return "PC"
+end
+
+deviceType = detectDevice()
+
+-- ═════════════════════════════════════════════
+-- [ LUXURY COLORS ]
+-- ═════════════════════════════════════════════
+local Colors = {
+    Background = Color3.fromRGB(8, 8, 12),
+    Glass = Color3.fromRGB(16, 16, 24),
+    Accent = Color3.fromRGB(200, 170, 100),
+    AccentGlow = Color3.fromRGB(235, 205, 140),
+    TextPrimary = Color3.fromRGB(248, 248, 252),
+    TextSecondary = Color3.fromRGB(155, 155, 175),
+    TextGold = Color3.fromRGB(215, 185, 115),
+    Success = Color3.fromRGB(85, 195, 125),
+    Error = Color3.fromRGB(215, 85, 85),
+    Border = Color3.fromRGB(50, 45, 70),
+    BorderGlow = Color3.fromRGB(95, 85, 135),
+    InputBg = Color3.fromRGB(20, 20, 32),
+    ButtonOff = Color3.fromRGB(40, 35, 50),
+    ButtonOn = Color3.fromRGB(55, 145, 90),
+    ButtonReport = Color3.fromRGB(45, 40, 60),
+}
+
+-- ═════════════════════════════════════════════
+-- [ HELPERS ]
+-- ═════════════════════════════════════════════
+local function guiValueToCFrameSpeed(guiValue)
+    guiValue = math.clamp(guiValue, MIN_SPEED_GUI, MAX_SPEED_GUI)
+    local ratio = (guiValue - MIN_SPEED_GUI) / (MAX_SPEED_GUI - MIN_SPEED_GUI)
+    return MIN_SPEED_CFRAME + (ratio * (MAX_SPEED_CFRAME - MIN_SPEED_CFRAME))
+end
+
+local function setupCharacter(newCharacter)
+    character = newCharacter
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+end
+
+local function tween(obj, props, duration, style, dir)
+    style = style or Enum.EasingStyle.Quint
+    dir = dir or Enum.EasingDirection.Out
+    TweenService:Create(obj, TweenInfo.new(duration or 0.4, style, dir), props):Play()
+end
+
+-- ═════════════════════════════════════════════
+-- [ MAIN SCREEN GUI ]
+-- ═════════════════════════════════════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "_7MD_is_Back"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = PlayerGui
+
+-- ═════════════════════════════════════════════
+-- [ MAIN FRAME ]
+-- ═════════════════════════════════════════════
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 250, 0, 170)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -85)
+MainFrame.BackgroundColor3 = Colors.Background
+MainFrame.BackgroundTransparency = 0.06
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local MFCorner = Instance.new("UICorner")
+MFCorner.CornerRadius = UDim.new(0, 18)
+MFCorner.Parent = MainFrame
+
+local MFStroke = Instance.new("UIStroke")
+MFStroke.Color = Colors.BorderGlow
+MFStroke.Thickness = 1.3
+MFStroke.Transparency = 0.3
+MFStroke.Parent = MainFrame
+
+local MFGlow = Instance.new("ImageLabel")
+MFGlow.Name = "Glow"
+MFGlow.Size = UDim2.new(1, 60, 1, 60)
+MFGlow.Position = UDim2.new(0, -30, 0, -30)
+MFGlow.BackgroundTransparency = 1
+MFGlow.Image = "rbxassetid://5028857084"
+MFGlow.ImageColor3 = Colors.Accent
+MFGlow.ImageTransparency = 0.87
+MFGlow.Parent = MainFrame
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 34)
+TitleBar.BackgroundColor3 = Colors.Glass
+TitleBar.BackgroundTransparency = 0.2
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TBCorner = Instance.new("UICorner")
+TBCorner.CornerRadius = UDim.new(0, 18)
+TBCorner.Parent = TitleBar
+
+local TBFix = Instance.new("Frame")
+TBFix.Size = UDim2.new(1, 0, 0, 14)
+TBFix.Position = UDim2.new(0, 0, 1, -14)
+TBFix.BackgroundColor3 = Colors.Glass
+TBFix.BackgroundTransparency = 0.2
+TBFix.BorderSizePixel = 0
+TBFix.Parent = TitleBar
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -60, 1, 0)
+TitleText.Position = UDim2.new(0, 14, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "7MD is back !"
+TitleText.TextColor3 = Colors.AccentGlow
+TitleText.TextSize = 15
+TitleText.Font = Enum.Font.GothamBold
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = TitleBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Name = "CloseBtn"
+CloseBtn.Size = UDim2.new(0, 24, 0, 24)
+CloseBtn.Position = UDim2.new(1, -28, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+CloseBtn.BackgroundTransparency = 0.25
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Colors.TextPrimary
+CloseBtn.TextSize = 17
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TitleBar
+
+local CBCorner = Instance.new("UICorner")
+CBCorner.CornerRadius = UDim.new(0, 7)
+CBCorner.Parent = CloseBtn
+
+-- Input Label
+local InputLabel = Instance.new("TextLabel")
+InputLabel.Size = UDim2.new(0, 190, 0, 14)
+InputLabel.Position = UDim2.new(0.5, -95, 0, 40)
+InputLabel.BackgroundTransparency = 1
+InputLabel.Text = "SPEED (1 - 100)"
+InputLabel.TextColor3 = Colors.TextSecondary
+InputLabel.TextSize = 9
+InputLabel.Font = Enum.Font.Gotham
+InputLabel.Parent = MainFrame
+
+-- Input Container
+local InputContainer = Instance.new("Frame")
+InputContainer.Size = UDim2.new(0, 190, 0, 34)
+InputContainer.Position = UDim2.new(0.5, -95, 0, 54)
+InputContainer.BackgroundColor3 = Colors.InputBg
+InputContainer.BackgroundTransparency = 0.12
+InputContainer.BorderSizePixel = 0
+InputContainer.Parent = MainFrame
+
+local InCorner = Instance.new("UICorner")
+InCorner.CornerRadius = UDim.new(0, 11)
+InCorner.Parent = InputContainer
+
+local InStroke = Instance.new("UIStroke")
+InStroke.Color = Colors.Border
+InStroke.Thickness = 1
+InStroke.Transparency = 0.45
+InStroke.Parent = InputContainer
+
+local SpeedInput = Instance.new("TextBox")
+SpeedInput.Size = UDim2.new(1, -16, 1, 0)
+SpeedInput.Position = UDim2.new(0, 8, 0, 0)
+SpeedInput.BackgroundTransparency = 1
+SpeedInput.Text = "10"
+SpeedInput.PlaceholderText = "1-100"
+SpeedInput.TextColor3 = Colors.TextPrimary
+SpeedInput.PlaceholderColor3 = Color3.fromRGB(95, 95, 115)
+SpeedInput.TextSize = 17
+SpeedInput.Font = Enum.Font.GothamBold
+SpeedInput.ClearTextOnFocus = false
+SpeedInput.TextXAlignment = Enum.TextXAlignment.Center
+SpeedInput.Parent = InputContainer
+
+local ActualSpeedLabel = Instance.new("TextLabel")
+ActualSpeedLabel.Size = UDim2.new(0, 190, 0, 14)
+ActualSpeedLabel.Position = UDim2.new(0.5, -95, 0, 90)
+ActualSpeedLabel.BackgroundTransparency = 1
+ActualSpeedLabel.Text = "Actual: 0.059"
+ActualSpeedLabel.TextColor3 = Colors.Success
+ActualSpeedLabel.TextSize = 9
+ActualSpeedLabel.Font = Enum.Font.Gotham
+ActualSpeedLabel.Parent = MainFrame
+
+-- Toggle Button
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "ToggleBtn"
+ToggleBtn.Size = UDim2.new(0, 190, 0, 32)
+ToggleBtn.Position = UDim2.new(0.5, -95, 0, 106)
+ToggleBtn.BackgroundColor3 = Colors.ButtonOff
+ToggleBtn.BackgroundTransparency = 0.08
+ToggleBtn.BorderSizePixel = 0
+ToggleBtn.Text = "OFF"
+ToggleBtn.TextColor3 = Color3.fromRGB(225, 95, 95)
+ToggleBtn.TextSize = 14
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.AutoButtonColor = false
+ToggleBtn.Parent = MainFrame
+
+local TgCorner = Instance.new("UICorner")
+TgCorner.CornerRadius = UDim.new(0, 11)
+TgCorner.Parent = ToggleBtn
+
+local TgStroke = Instance.new("UIStroke")
+TgStroke.Color = Color3.fromRGB(205, 75, 75)
+TgStroke.Thickness = 1.3
+TgStroke.Transparency = 0.35
+TgStroke.Parent = ToggleBtn
+
+-- Report Button
+local ReportBtn = Instance.new("TextButton")
+ReportBtn.Name = "ReportBtn"
+ReportBtn.Size = UDim2.new(0, 190, 0, 26)
+ReportBtn.Position = UDim2.new(0.5, -95, 0, 142)
+ReportBtn.BackgroundColor3 = Colors.ButtonReport
+ReportBtn.BackgroundTransparency = 0.15
+ReportBtn.BorderSizePixel = 0
+ReportBtn.Text = "📨  Report / Suggest"
+ReportBtn.TextColor3 = Colors.TextGold
+ReportBtn.TextSize = 11
+ReportBtn.Font = Enum.Font.GothamBold
+ReportBtn.AutoButtonColor = false
+ReportBtn.Parent = MainFrame
+
+local RbCorner = Instance.new("UICorner")
+RbCorner.CornerRadius = UDim.new(0, 9)
+RbCorner.Parent = ReportBtn
+
+local RbStroke = Instance.new("UIStroke")
+RbStroke.Color = Colors.Accent
+RbStroke.Thickness = 0.9
+RbStroke.Transparency = 0.4
+RbStroke.Parent = ReportBtn
+
+ReportBtn.MouseEnter:Connect(function()
+    tween(ReportBtn, {BackgroundColor3 = Color3.fromRGB(55, 48, 75)}, 0.2)
+    tween(RbStroke, {Transparency = 0.15}, 0.2)
+end)
+ReportBtn.MouseLeave:Connect(function()
+    tween(ReportBtn, {BackgroundColor3 = Colors.ButtonReport}, 0.2)
+    tween(RbStroke, {Transparency = 0.4}, 0.2)
+end)
+
+-- ═════════════════════════════════════════════
+-- [ PC HINTS — FADES AFTER 5 SECONDS ]
+-- ═════════════════════════════════════════════
+if deviceType == "PC" then
+    local HintsFrame = Instance.new("Frame")
+    HintsFrame.Name = "HintsFrame"
+    HintsFrame.Size = UDim2.new(0, 250, 0, 28)
+    HintsFrame.Position = UDim2.new(0.5, -125, 0.5, 90)
+    HintsFrame.BackgroundColor3 = Colors.Glass
+    HintsFrame.BackgroundTransparency = 0.25
+    HintsFrame.BorderSizePixel = 0
+    HintsFrame.Parent = ScreenGui
+
+    local HfCorner = Instance.new("UICorner")
+    HfCorner.CornerRadius = UDim.new(0, 10)
+    HfCorner.Parent = HintsFrame
+
+    local HfStroke = Instance.new("UIStroke")
+    HfStroke.Color = Colors.Border
+    HfStroke.Thickness = 0.6
+    HfStroke.Transparency = 0.7
+    HfStroke.Parent = HintsFrame
+
+    local HintsText = Instance.new("TextLabel")
+    HintsText.Size = UDim2.new(1, -10, 1, 0)
+    HintsText.Position = UDim2.new(0, 5, 0, 0)
+    HintsText.BackgroundTransparency = 1
+    HintsText.Text = "[C] Toggle Speed  ·  [V] Hide/Show GUI"
+    HintsText.TextColor3 = Colors.TextSecondary
+    HintsText.TextSize = 10
+    HintsText.TextTransparency = 0.15
+    HintsText.Font = Enum.Font.Gotham
+    HintsText.Parent = HintsFrame
+
+    task.delay(5, function()
+        if HintsFrame and HintsFrame.Parent then
+            tween(HintsFrame, {BackgroundTransparency = 1}, 0.6)
+            tween(HintsText, {TextTransparency = 1}, 0.6)
+            tween(HfStroke, {Transparency = 1}, 0.6)
+            task.delay(0.7, function()
+                if HintsFrame then HintsFrame:Destroy() end
+            end)
+        end
+    end)
+end
+
+-- ═════════════════════════════════════════════
+-- [ MOBILE FLOATING BUTTONS ]
+-- ═════════════════════════════════════════════
+local MobileToggleBtn, MobileHideBtn
+if deviceType == "Mobile" then
+    MobileToggleBtn = Instance.new("TextButton")
+    MobileToggleBtn.Name = "MobileToggleBtn"
+    MobileToggleBtn.Size = UDim2.new(0, 58, 0, 58)
+    MobileToggleBtn.Position = UDim2.new(0, 18, 1, -78)
+    MobileToggleBtn.BackgroundColor3 = Colors.ButtonOff
+    MobileToggleBtn.BackgroundTransparency = 0.08
+    MobileToggleBtn.BorderSizePixel = 0
+    MobileToggleBtn.Text = "OFF"
+    MobileToggleBtn.TextColor3 = Color3.fromRGB(225, 95, 95)
+    MobileToggleBtn.TextSize = 12
+    MobileToggleBtn.Font = Enum.Font.GothamBold
+    MobileToggleBtn.AutoButtonColor = false
+    MobileToggleBtn.Parent = ScreenGui
+
+    local MTBCorner = Instance.new("UICorner")
+    MTBCorner.CornerRadius = UDim.new(1, 0)
+    MTBCorner.Parent = MobileToggleBtn
+
+    local MTBStroke = Instance.new("UIStroke")
+    MTBStroke.Color = Color3.fromRGB(205, 75, 75)
+    MTBStroke.Thickness = 1.5
+    MTBStroke.Transparency = 0.35
+    MTBStroke.Parent = MobileToggleBtn
+
+    MobileHideBtn = Instance.new("TextButton")
+    MobileHideBtn.Name = "MobileHideBtn"
+    MobileHideBtn.Size = UDim2.new(0, 46, 0, 46)
+    MobileHideBtn.Position = UDim2.new(0, 84, 1, -72)
+    MobileHideBtn.BackgroundColor3 = Colors.Glass
+    MobileHideBtn.BackgroundTransparency = 0.12
+    MobileHideBtn.BorderSizePixel = 0
+    MobileHideBtn.Text = "👁"
+    MobileHideBtn.TextColor3 = Colors.TextPrimary
+    MobileHideBtn.TextSize = 21
+    MobileHideBtn.Font = Enum.Font.GothamBold
+    MobileHideBtn.AutoButtonColor = false
+    MobileHideBtn.Parent = ScreenGui
+
+    local MHBCorner = Instance.new("UICorner")
+    MHBCorner.CornerRadius = UDim.new(1, 0)
+    MHBCorner.Parent = MobileHideBtn
+
+    local MHBStroke = Instance.new("UIStroke")
+    MHBStroke.Color = Colors.Border
+    MHBStroke.Thickness = 1
+    MHBStroke.Transparency = 0.45
+    MHBStroke.Parent = MobileHideBtn
+end
+
+-- ═════════════════════════════════════════════
+-- [ REPORT WINDOW — SUBTLE BORDER ]
+-- ═════════════════════════════════════════════
+local ReportFrame = Instance.new("Frame")
+ReportFrame.Name = "ReportFrame"
+ReportFrame.Size = UDim2.new(0, 310, 0, 250)
+ReportFrame.Position = UDim2.new(0.5, -155, 0.5, -125)
+ReportFrame.BackgroundColor3 = Colors.Background
+ReportFrame.BackgroundTransparency = 0.04
+ReportFrame.BorderSizePixel = 0
+ReportFrame.Active = true
+ReportFrame.Visible = false
+ReportFrame.ZIndex = 10
+ReportFrame.Parent = ScreenGui
+
+local RFCorner = Instance.new("UICorner")
+RFCorner.CornerRadius = UDim.new(0, 20)
+RFCorner.Parent = ReportFrame
+
+-- SUBTLE BORDER — not flashy gold
+local RFStroke = Instance.new("UIStroke")
+RFStroke.Color = Colors.Border
+RFStroke.Thickness = 1
+RFStroke.Transparency = 0.55
+RFStroke.Parent = ReportFrame
+
+local RFGlow = Instance.new("ImageLabel")
+RFGlow.Name = "Glow"
+RFGlow.Size = UDim2.new(1, 60, 1, 60)
+RFGlow.Position = UDim2.new(0, -30, 0, -30)
+RFGlow.BackgroundTransparency = 1
+RFGlow.Image = "rbxassetid://5028857084"
+RFGlow.ImageColor3 = Colors.Accent
+RFGlow.ImageTransparency = 0.88
+RFGlow.ZIndex = 10
+RFGlow.Parent = ReportFrame
+
+local RFTitle = Instance.new("TextLabel")
+RFTitle.Size = UDim2.new(1, -30, 0, 32)
+RFTitle.Position = UDim2.new(0, 16, 0, 14)
+RFTitle.BackgroundTransparency = 1
+RFTitle.Text = "📨  Send Report or Suggestion"
+RFTitle.TextColor3 = Colors.AccentGlow
+RFTitle.TextSize = 16
+RFTitle.Font = Enum.Font.GothamBold
+RFTitle.TextXAlignment = Enum.TextXAlignment.Left
+RFTitle.ZIndex = 11
+RFTitle.Parent = ReportFrame
+
+local RFSubtitle = Instance.new("TextLabel")
+RFSubtitle.Size = UDim2.new(1, -30, 0, 16)
+RFSubtitle.Position = UDim2.new(0, 16, 0, 44)
+RFSubtitle.BackgroundTransparency = 1
+RFSubtitle.Text = "Your message goes straight to 7MD"
+RFSubtitle.TextColor3 = Colors.TextSecondary
+RFSubtitle.TextSize = 10
+RFSubtitle.Font = Enum.Font.Gotham
+RFSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+RFSubtitle.ZIndex = 11
+RFSubtitle.Parent = ReportFrame
+
+local MsgContainer = Instance.new("Frame")
+MsgContainer.Size = UDim2.new(0, 280, 0, 105)
+MsgContainer.Position = UDim2.new(0.5, -140, 0, 66)
+MsgContainer.BackgroundColor3 = Colors.InputBg
+MsgContainer.BackgroundTransparency = 0.1
+MsgContainer.BorderSizePixel = 0
+MsgContainer.ZIndex = 11
+MsgContainer.Parent = ReportFrame
+
+local MsgCorner = Instance.new("UICorner")
+MsgCorner.CornerRadius = UDim.new(0, 13)
+MsgCorner.Parent = MsgContainer
+
+local MsgStroke = Instance.new("UIStroke")
+MsgStroke.Color = Colors.Border
+MsgStroke.Thickness = 1
+MsgStroke.Transparency = 0.4
+MsgStroke.Parent = MsgContainer
+
+local MsgInput = Instance.new("TextBox")
+MsgInput.Size = UDim2.new(1, -18, 1, -14)
+MsgInput.Position = UDim2.new(0, 9, 0, 7)
+MsgInput.BackgroundTransparency = 1
+MsgInput.Text = ""
+MsgInput.PlaceholderText = "Type your message here..."
+MsgInput.TextColor3 = Colors.TextPrimary
+MsgInput.PlaceholderColor3 = Color3.fromRGB(95, 95, 115)
+MsgInput.TextSize = 12
+MsgInput.Font = Enum.Font.Gotham
+MsgInput.TextXAlignment = Enum.TextXAlignment.Left
+MsgInput.TextYAlignment = Enum.TextYAlignment.Top
+MsgInput.TextWrapped = true
+MsgInput.ClearTextOnFocus = false
+MsgInput.MultiLine = true
+MsgInput.ZIndex = 12
+MsgInput.Parent = MsgContainer
+
+local SendBtn = Instance.new("TextButton")
+SendBtn.Name = "SendBtn"
+SendBtn.Size = UDim2.new(0, 140, 0, 34)
+SendBtn.Position = UDim2.new(0.5, -70, 0, 180)
+SendBtn.BackgroundColor3 = Colors.Accent
+SendBtn.BackgroundTransparency = 0.1
+SendBtn.BorderSizePixel = 0
+SendBtn.Text = "SEND"
+SendBtn.TextColor3 = Colors.TextPrimary
+SendBtn.TextSize = 14
+SendBtn.Font = Enum.Font.GothamBold
+SendBtn.AutoButtonColor = false
+SendBtn.ZIndex = 11
+SendBtn.Parent = ReportFrame
+
+local SdCorner = Instance.new("UICorner")
+SdCorner.CornerRadius = UDim.new(0, 11)
+SdCorner.Parent = SendBtn
+
+local SdStroke = Instance.new("UIStroke")
+SdStroke.Color = Colors.AccentGlow
+SdStroke.Thickness = 1.3
+SdStroke.Transparency = 0.25
+SdStroke.Parent = SendBtn
+
+local RfClose = Instance.new("TextButton")
+RfClose.Size = UDim2.new(0, 24, 0, 24)
+RfClose.Position = UDim2.new(1, -30, 0, 10)
+RfClose.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+RfClose.BackgroundTransparency = 0.25
+RfClose.BorderSizePixel = 0
+RfClose.Text = "×"
+RfClose.TextColor3 = Colors.TextPrimary
+RfClose.TextSize = 17
+RfClose.Font = Enum.Font.GothamBold
+RfClose.ZIndex = 11
+RfClose.Parent = ReportFrame
+
+local RfCCorner = Instance.new("UICorner")
+RfCCorner.CornerRadius = UDim.new(0, 7)
+RfCCorner.Parent = RfClose
+
+local SendStatus = Instance.new("TextLabel")
+SendStatus.Size = UDim2.new(1, -30, 0, 16)
+SendStatus.Position = UDim2.new(0, 15, 0, 220)
+SendStatus.BackgroundTransparency = 1
+SendStatus.Text = ""
+SendStatus.TextColor3 = Colors.TextSecondary
+SendStatus.TextSize = 10
+SendStatus.Font = Enum.Font.Gotham
+SendStatus.ZIndex = 11
+SendStatus.Parent = ReportFrame
+
+-- ═════════════════════════════════════════════
+-- [ DRAG SYSTEM ]
+-- ═════════════════════════════════════════════
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+local rDragging = false
+local rDragStart = nil
+local rStartPos = nil
+
+RFTitle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rDragging = true
+        rDragStart = input.Position
+        rStartPos = ReportFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if rDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - rDragStart
+        ReportFrame.Position = UDim2.new(
+            rStartPos.X.Scale, rStartPos.X.Offset + delta.X,
+            rStartPos.Y.Scale, rStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rDragging = false
+    end
+end)
+
+-- ═════════════════════════════════════════════
+-- [ TOGGLE GUI VISIBILITY ]
+-- ═════════════════════════════════════════════
+local function toggleGuiVisibility()
+    isGuiVisible = not isGuiVisible
+    MainFrame.Visible = isGuiVisible
+    if isGuiVisible then
+        MainFrame.Size = UDim2.new(0, 230, 0, 155)
+        tween(MainFrame, {Size = UDim2.new(0, 250, 0, 170)}, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    else
+        MainFrame.Size = UDim2.new(0, 250, 0, 170)
+        tween(MainFrame, {Size = UDim2.new(0, 230, 0, 155)}, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    end
+end
+
+-- ═════════════════════════════════════════════
+-- [ INPUT LOGIC — CLEAN 100% ]
+-- ═════════════════════════════════════════════
+local function validateAndUpdate()
+    local num = tonumber(SpeedInput.Text)
+    if num then
+        num = math.clamp(math.floor(num), MIN_SPEED_GUI, MAX_SPEED_GUI)
+        currentSpeedValue = num
+        SpeedInput.Text = tostring(num)
+        local actual = guiValueToCFrameSpeed(num)
+        ActualSpeedLabel.Text = "Actual: " .. string.format("%.3f", actual)
+        ActualSpeedLabel.TextColor3 = Colors.Success
+    else
+        SpeedInput.Text = tostring(currentSpeedValue)
+    end
+end
+
+SpeedInput.FocusLost:Connect(validateAndUpdate)
+
+SpeedInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local text = SpeedInput.Text
+    local filtered = text:gsub("[^0-9]", "")
+    if text ~= filtered then
+        SpeedInput.Text = filtered
+    end
+end)
+
+-- ═════════════════════════════════════════════
+-- [ SPEED SYSTEM — CFrame ]
+-- ═════════════════════════════════════════════
+local function updateMovement()
+    if moveConnection then moveConnection:Disconnect() end
+    moveConnection = RunService.Heartbeat:Connect(function()
+        if isSpeedEnabled and humanoid and rootPart and humanoid.Parent then
+            if humanoid.MoveDirection.Magnitude > 0 then
+                local moveDir = humanoid.MoveDirection.Unit
+                local actualSpeed = guiValueToCFrameSpeed(currentSpeedValue)
+                rootPart.CFrame = rootPart.CFrame + (moveDir * actualSpeed)
+            end
+        end
+    end)
+end
+
+-- ═════════════════════════════════════════════
+-- [ UPDATE TOGGLE VISUALS ]
+-- ═════════════════════════════════════════════
+local function updateToggleVisuals(isOn)
+    local targetBg = isOn and Colors.ButtonOn or Colors.ButtonOff
+    local targetText = isOn and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(225, 95, 95)
+    local targetStroke = isOn and Color3.fromRGB(75, 195, 115) or Color3.fromRGB(205, 75, 75)
+
+    tween(ToggleBtn, {BackgroundColor3 = targetBg}, 0.25)
+    tween(ToggleBtn, {TextColor3 = targetText}, 0.25)
+    tween(TgStroke, {Color = targetStroke}, 0.25)
+    ToggleBtn.Text = isOn and "ON" or "OFF"
+
+    if MobileToggleBtn then
+        tween(MobileToggleBtn, {BackgroundColor3 = targetBg}, 0.25)
+        tween(MobileToggleBtn, {TextColor3 = targetText}, 0.25)
+        local mtbStroke = MobileToggleBtn:FindFirstChildOfClass("UIStroke")
+        if mtbStroke then
+            tween(mtbStroke, {Color = targetStroke}, 0.25)
+        end
+        MobileToggleBtn.Text = isOn and "ON" or "OFF"
+    end
+end
+
+-- ═════════════════════════════════════════════
+-- [ TOGGLE ON/OFF ]
+-- ═════════════════════════════════════════════
+local function toggleSpeed()
+    isSpeedEnabled = not isSpeedEnabled
+    updateToggleVisuals(isSpeedEnabled)
+    if isSpeedEnabled then
+        local actual = guiValueToCFrameSpeed(currentSpeedValue)
+    else
+    end
+end
+
+ToggleBtn.MouseButton1Click:Connect(toggleSpeed)
+if MobileToggleBtn then
+    MobileToggleBtn.MouseButton1Click:Connect(toggleSpeed)
+end
+
+-- ═════════════════════════════════════════════
+-- [ SEND TO DISCORD — PROFESSIONAL EMBED ]
+-- ═════════════════════════════════════════════
+local function sendToDiscord(message)
+    if message == "" or message == nil then
+        SendStatus.Text = "⚠️ Please type something first"
+        SendStatus.TextColor3 = Colors.Error
+        return
+    end
+
+    SendStatus.Text = "⏳ Sending..."
+    SendStatus.TextColor3 = Colors.TextSecondary
+
+    local executorName = "Unknown"
+    pcall(function()
+        if identifyexecutor then executorName = identifyexecutor() end
+    end)
+
+    local ping = 0
+    pcall(function()
+        ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+    end)
+
+    local payload = HttpService:JSONEncode({
+        embeds = {{
+            title = "📨  New Report / Suggestion",
+            description = "```yaml\n" .. message .. "\n```",
+            color = 0xC8AA64,
+            fields = {
+                {
+                    name = "👤  Player",
+                    value = "```ini\nUsername: " .. LocalPlayer.Name .. "\nUserId: " .. LocalPlayer.UserId .. "\nDisplay: " .. LocalPlayer.DisplayName .. "\n```",
+                    inline = true
+                },
+                {
+                    name = "🎮  Game",
+                    value = "```ini\nPlaceID: " .. tostring(game.PlaceId) .. "\nJobID: " .. tostring(game.JobId):sub(1, 20) .. "...\nPlayers: " .. #Players:GetPlayers() .. "/" .. Players.MaxPlayers .. "\n```",
+                    inline = true
+                },
+                {
+                    name = "⚙️  System",
+                    value = "```ini\nDevice: " .. deviceType .. "\nExecutor: " .. executorName .. "\nPing: " .. ping .. "ms\n```",
+                    inline = true
+                },
+                {
+                    name = "⏰  Timestamp",
+                    value = "```fix\n" .. os.date("%Y-%m-%d %H:%M:%S") .. "\n```",
+                    inline = false
+                }
+            },
+            footer = {
+                text = "7MD is back !  |  Premium Speed GUI  |  $100 Grade",
+                icon_url = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LocalPlayer.UserId .. "&width=420&height=420&format=png"
+            },
+            thumbnail = {
+                url = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LocalPlayer.UserId .. "&width=420&height=420&format=png"
+            }
+        }}
+    })
+
+    local request = syn and syn.request or http_request or request or (http and http.request)
+    local success = false
+
+    if request then
+        local ok = pcall(function()
+            request({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = payload
+            })
+        end)
+        success = ok
+    else
+        local ok = pcall(function()
+            HttpService:PostAsync(WEBHOOK_URL, payload, Enum.HttpContentType.ApplicationJson)
+        end)
+        success = ok
+    end
+
+    if success then
+        SendStatus.Text = "✅ Sent successfully!"
+        SendStatus.TextColor3 = Colors.Success
+        MsgInput.Text = ""
+        task.delay(2, function()
+            SendStatus.Text = ""
+        end)
+    else
+        SendStatus.Text = "❌ Failed to send. Try again."
+        SendStatus.TextColor3 = Colors.Error
+    end
+end
+
+SendBtn.MouseButton1Click:Connect(function()
+    sendToDiscord(MsgInput.Text)
+end)
+
+ReportBtn.MouseButton1Click:Connect(function()
+    ReportFrame.Visible = not ReportFrame.Visible
+    if ReportFrame.Visible then
+        ReportFrame.Size = UDim2.new(0, 290, 0, 230)
+        tween(ReportFrame, {Size = UDim2.new(0, 310, 0, 250)}, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    end
+end)
+
+RfClose.MouseButton1Click:Connect(function()
+    tween(ReportFrame, {Size = UDim2.new(0, 290, 0, 230)}, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    task.delay(0.15, function()
+        ReportFrame.Visible = false
+    end)
+end)
+
+-- ═════════════════════════════════════════════
+-- [ PC HOTKEYS ]
+-- ═════════════════════════════════════════════
+if deviceType == "PC" then
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == TOGGLE_KEY then
+            toggleSpeed()
+        elseif input.KeyCode == HIDE_KEY then
+            toggleGuiVisibility()
+        end
+    end)
+end
+
+-- ═════════════════════════════════════════════
+-- [ MOBILE HIDE BUTTON ]
+-- ═════════════════════════════════════════════
+if MobileHideBtn then
+    MobileHideBtn.MouseButton1Click:Connect(function()
+        toggleGuiVisibility()
+    end)
+end
+
+-- ═════════════════════════════════════════════
+-- [ CHARACTER SETUP ]
+-- ═════════════════════════════════════════════
+if LocalPlayer.Character then
+    setupCharacter(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    setupCharacter(newCharacter)
+end)
+
+updateMovement()
+validateAndUpdate()
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+    if moveConnection then moveConnection:Disconnect() end
+end)
+
+print("✨ 7MD is back ! V2.2 Loaded | Device: " .. deviceType .. " | [C] Toggle | [V] Hide/Show | ")
