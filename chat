@@ -1,3 +1,45 @@
+
+-- ═══════════════════════════════════════════════════════════════════
+-- 🔒 فحص الصلاحية - يمنع التشغيل بدون رتبة
+-- ═══════════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local playerName = Players.LocalPlayer.Name
+local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
+local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
+
+local function CheckSingleAPI(url)
+    local fullUrl = url .. "/check?username=" .. HttpService:UrlEncode(playerName)
+    local success, response = pcall(function()
+        return game:HttpGet(fullUrl)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not ok or type(data) ~= "table" then return nil end
+    return data.permissions or data
+end
+
+local function HasPermission()
+    local data = CheckSingleAPI(API_BASE)
+    if not data then data = CheckSingleAPI(API_BACKUP) end
+    if not data then return false end
+    return data["chat"] == true
+end
+
+if not HasPermission() then
+    StarterGui:SetCore("SendNotification", {
+        Title = "🔒 مقفل",
+        Text = "ليس لديك صلاحية لهذا السكربت",
+        Duration = 3
+    })
+    return -- ⛔ يوقف السكربت بالكامل
+end
+-- ═══════════════════════════════════════════════════════════════════
+
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
