@@ -1,422 +1,437 @@
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local playerName = LocalPlayer.Name
 
+-- ═══════════════════════════════════════════════════════════════════
+-- 🔒 فحص الصلاحية - يمنع التشغيل بدون رتبة
+-- ═══════════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local playerName = Players.LocalPlayer.Name
 local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
 local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
 
-local function CheckPermission(permName)
-    local function tryUrl(base)
-        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
-        local success, response = pcall(function()
-            return game:HttpGet(fullUrl)
-        end)
-        if not success then return nil end
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(response)
-        end)
-        if not ok or type(data) ~= "table" then return nil end
-        local perms = data.permissions or data
-        return perms[permName] == true
-    end
-    local result = tryUrl(API_BASE)
-    if result == nil then result = tryUrl(API_BACKUP) end
-    return result == true
+local function CheckSingleAPI(url)
+    local fullUrl = url .. "/check?username=" .. HttpService:UrlEncode(playerName)
+    local success, response = pcall(function()
+        return game:HttpGet(fullUrl)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not ok or type(data) ~= "table" then return nil end
+    return data.permissions or data
 end
 
-if not CheckPermission("shapes") then
-    return
+local function HasPermission()
+    local data = CheckSingleAPI(API_BASE)
+    if not data then data = CheckSingleAPI(API_BACKUP) end
+    if not data then return false end
+    return data["shapes"] == true
 end
 
-local function LoadShapesScript()
-    local RunService = game:GetService("RunService")
-    local player = Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local root = character:WaitForChild("HumanoidRootPart")
-
-    local activeCoins = {}
-    local currentPoints = {}
-    local verticalOffset = 8
-    local isAnimating = false
-    local currentTask = nil
-    local mode = "SHAPE"
-    local orbitRadius = 7
-    local rotationSpeed = 4
-
-    local Words = {
-        ["HAND"] = {
-            Vector3.new(0, -3, 0), Vector3.new(1, -3, 0), Vector3.new(-1, -3, 0),
-            Vector3.new(0, -1.5, 0), Vector3.new(1.5, -1.5, 0), Vector3.new(-1.5, -1.5, 0),
-            Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
-            Vector3.new(0, 1.5, 0), Vector3.new(2, 1.5, 0), Vector3.new(-2, 1.5, 0),
-            Vector3.new(3.5, 0.5, 0), Vector3.new(4.5, 1.5, 0), Vector3.new(5.5, 2.5, 0),
-            Vector3.new(2.5, 3, 0), Vector3.new(2.8, 4.5, 0), Vector3.new(3.1, 6, 0),
-            Vector3.new(0.5, 3.5, 0), Vector3.new(0.5, 5.5, 0), Vector3.new(0.5, 7.5, 0),
-            Vector3.new(-1.5, 3, 0), Vector3.new(-1.8, 4.5, 0), Vector3.new(-2.1, 6, 0),
-            Vector3.new(-3.5, 2, 0), Vector3.new(-4.5, 3.5, 0), Vector3.new(-5, 4.5, 0)
-        },
-        ["MIDDLE"] = {
-            Vector3.new(0, -3, 0), Vector3.new(1, -3, 0), Vector3.new(-1, -3, 0),
-            Vector3.new(0, -1, 0), Vector3.new(1.5, -1, 0), Vector3.new(-1.5, -1, 0),
-            Vector3.new(0, 0.5, 0), Vector3.new(2, 0.5, 0), Vector3.new(-2, 0.5, 0),
-            Vector3.new(0, 2, 0), Vector3.new(2, 2, 0), Vector3.new(-2, 2, 0),
-            Vector3.new(3.5, 1, 0), Vector3.new(4, 2, 0), Vector3.new(4.5, 3, 0),
-            Vector3.new(2, 3, 0), Vector3.new(2, 3.5, 0),
-            Vector3.new(0.5, 3.5, 0), Vector3.new(0.5, 5.5, 0), Vector3.new(0.5, 7.5, 0), Vector3.new(0.5, 9, 0),
-            Vector3.new(-1.5, 3, 0), Vector3.new(-1.8, 3.8, 0),
-            Vector3.new(-3.5, 2.5, 0), Vector3.new(-4, 3.2, 0)
-        },
-        ["HI_BIG"] = {
-            Vector3.new(4,0,0), Vector3.new(4,1,0), Vector3.new(4,2,0), Vector3.new(4,3,0), Vector3.new(4,4,0), Vector3.new(4,5,0), Vector3.new(4,6,0),
-            Vector3.new(3,3,0), Vector3.new(2,3,0), Vector3.new(1,3,0), Vector3.new(0,3,0),
-            Vector3.new(-1,0,0), Vector3.new(-1,1,0), Vector3.new(-1,2,0), Vector3.new(-1,3,0), Vector3.new(-1,4,0), Vector3.new(-1,5,0), Vector3.new(-1,6,0),
-            Vector3.new(-4,0,0), Vector3.new(-5,0,0), Vector3.new(-6,0,0), Vector3.new(-5,1,0), Vector3.new(-5,2,0), Vector3.new(-5,3,0), Vector3.new(-5,4,0), Vector3.new(-5,5,0), Vector3.new(-4,6,0), Vector3.new(-5,6,0), Vector3.new(-6,6,0)
-        },
-        ["BIG_HEART"] = {
-            Vector3.new(0,-2,0), Vector3.new(1,-1,0), Vector3.new(-1,-1,0), Vector3.new(2,0,0), Vector3.new(-2,0,0),
-            Vector3.new(3,1,0), Vector3.new(-3,1,0), Vector3.new(4,2,0), Vector3.new(-4,2,0), Vector3.new(5,3,0), Vector3.new(-5,3,0),
-            Vector3.new(6,4,0), Vector3.new(-6,4,0), Vector3.new(6,5,0), Vector3.new(-6,5,0), Vector3.new(6,6,0), Vector3.new(-6,6,0),
-            Vector3.new(5,7,0), Vector3.new(4,8,0), Vector3.new(3,8,0), Vector3.new(2,7,0), Vector3.new(1,6,0),
-            Vector3.new(0,5,0), Vector3.new(-1,6,0), Vector3.new(-2,7,0), Vector3.new(-3,8,0), Vector3.new(-4,8,0), Vector3.new(-5,7,0)
-        },
-        ["I"] = {
-            Vector3.new(0,0,0), Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0),
-            Vector3.new(1,0,0), Vector3.new(-1,0,0), Vector3.new(1,5,0), Vector3.new(-1,5,0)
-        },
-        ["LOVE"] = {
-            Vector3.new(7,0,0), Vector3.new(7,1,0), Vector3.new(7,2,0), Vector3.new(7,3,0), Vector3.new(7,4,0), Vector3.new(6,0,0), Vector3.new(5,0,0),
-            Vector3.new(3,0,0), Vector3.new(3,1,0), Vector3.new(3,2,0), Vector3.new(3,3,0), Vector3.new(3,4,0), Vector3.new(2,4,0), Vector3.new(1,4,0), Vector3.new(0,4,0), Vector3.new(0,3,0), Vector3.new(0,2,0), Vector3.new(0,1,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0),
-            Vector3.new(-2,4,0), Vector3.new(-2,3,0), Vector3.new(-3,2,0), Vector3.new(-3,1,0), Vector3.new(-4,0,0), Vector3.new(-5,1,0), Vector3.new(-5,2,0), Vector3.new(-6,3,0), Vector3.new(-6,4,0),
-            Vector3.new(-8,0,0), Vector3.new(-8,1,0), Vector3.new(-8,2,0), Vector3.new(-8,3,0), Vector3.new(-8,4,0), Vector3.new(-9,4,0), Vector3.new(-10,4,0), Vector3.new(-9,2,0), Vector3.new(-9,0,0), Vector3.new(-10,0,0)
-        },
-        ["YOU"] = {
-            Vector3.new(4,4,0), Vector3.new(3,3,0), Vector3.new(2,2,0), Vector3.new(1,3,0), Vector3.new(0,4,0), Vector3.new(2,1,0), Vector3.new(2,0,0),
-            Vector3.new(-2,0,0), Vector3.new(-2,1,0), Vector3.new(-2,2,0), Vector3.new(-2,3,0), Vector3.new(-2,4,0), Vector3.new(-3,4,0), Vector3.new(-4,4,0), Vector3.new(-5,4,0), Vector3.new(-5,3,0), Vector3.new(-5,2,0), Vector3.new(-5,1,0), Vector3.new(-5,0,0), Vector3.new(-4,0,0), Vector3.new(-3,0,0),
-            Vector3.new(-7,4,0), Vector3.new(-7,3,0), Vector3.new(-7,2,0), Vector3.new(-7,1,0), Vector3.new(-8,0,0), Vector3.new(-9,0,0), Vector3.new(-10,0,0), Vector3.new(-11,1,0), Vector3.new(-11,2,0), Vector3.new(-11,3,0), Vector3.new(-11,4,0)
-        },
-        ["67"] = {
-            Vector3.new(6,6,0), Vector3.new(5,6,0), Vector3.new(4,6,0), Vector3.new(3,6,0), Vector3.new(2,6,0),
-            Vector3.new(6,5,0), Vector3.new(6,4,0), Vector3.new(6,3,0), Vector3.new(6,2,0), Vector3.new(6,1,0),
-            Vector3.new(2,3,0), Vector3.new(3,3,0), Vector3.new(4,3,0), Vector3.new(5,3,0),
-            Vector3.new(2,2,0), Vector3.new(2,1,0),
-            Vector3.new(2,0,0), Vector3.new(3,0,0), Vector3.new(4,0,0), Vector3.new(5,0,0), Vector3.new(6,0,0),
-            Vector3.new(-6,6,0), Vector3.new(-5,6,0), Vector3.new(-4,6,0), Vector3.new(-3,6,0), Vector3.new(-2,6,0),
-            Vector3.new(-6,5,0), Vector3.new(-5,4,0), Vector3.new(-4,3,0), Vector3.new(-3,2,0), Vector3.new(-2,1,0), Vector3.new(-1,0,0)
-        },
-        ["1"] = {Vector3.new(0,0,0), Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0), Vector3.new(0,6,0)},
-        ["2"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-1,3,0), Vector3.new(0,3,0), Vector3.new(1,3,0), Vector3.new(2,3,0), Vector3.new(2,2,0), Vector3.new(2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
-        ["3"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-1,3,0), Vector3.new(0,3,0), Vector3.new(1,3,0), Vector3.new(2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0)},
-        ["4"] = {Vector3.new(2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(2,3,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
-        ["5"] = {Vector3.new(-2,6,0), Vector3.new(-1,6,0), Vector3.new(0,6,0), Vector3.new(1,6,0), Vector3.new(2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0)},
-        ["6"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(2,2,0), Vector3.new(-2,2,0), Vector3.new(2,1,0), Vector3.new(-2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
-        ["7"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
-        ["8"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(-2,5,0), Vector3.new(2,4,0), Vector3.new(-2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(2,2,0), Vector3.new(-2,2,0), Vector3.new(2,1,0), Vector3.new(-2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
-        ["9"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(-2,5,0), Vector3.new(2,4,0), Vector3.new(-2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
-        ["10"] = {
-            Vector3.new(3,6,0), Vector3.new(3,5,0), Vector3.new(3,4,0), Vector3.new(3,3,0), Vector3.new(3,2,0), Vector3.new(3,1,0), Vector3.new(3,0,0),
-            Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0),
-            Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0),
-            Vector3.new(-2,1,0), Vector3.new(-2,2,0), Vector3.new(-2,3,0), Vector3.new(-2,4,0), Vector3.new(-2,5,0)
-        }
-    }
-    currentPoints = Words["HAND"]
-
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "PremiumOrbitSystem"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = player:WaitForChild("PlayerGui")
-
-    local frame = Instance.new("Frame", screenGui)
-    frame.Size = UDim2.new(0, 200, 0, 380)
-    frame.Position = UDim2.new(0.02, 0, 0.35, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    frame.BackgroundTransparency = 0.2
-    frame.BorderSizePixel = 0
-    frame.Active = true
-    frame.Draggable = true
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
-
-    local titleFrame = Instance.new("Frame", frame)
-    titleFrame.Size = UDim2.new(1, 0, 0, 35)
-    titleFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    titleFrame.BorderSizePixel = 0
-
-    local title = Instance.new("TextLabel", titleFrame)
-    title.Text = "✨ مسدس الأشكال ✨"
-    title.Size = UDim2.new(1, 0, 1, 0)
-    title.BackgroundTransparency = 1
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 15
-    title.TextStrokeTransparency = 0.7
-
-    Instance.new("UICorner", titleFrame).CornerRadius = UDim.new(0, 12)
-
-    local container = Instance.new("ScrollingFrame", frame)
-    container.Size = UDim2.new(1, 0, 1, -100)
-    container.Position = UDim2.new(0, 0, 0, 40)
-    container.BackgroundTransparency = 1
-    container.ScrollBarThickness = 8
-    container.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
-    container.CanvasSize = UDim2.new(0, 0, 0, 470)
-
-    local layout = Instance.new("UIListLayout", container)
-    layout.Padding = UDim.new(0, 8)
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-    local function updatePositions()
-        for i, data in ipairs(activeCoins) do
-            local pointIndex = (i % #currentPoints) + 1
-            data.Offset = currentPoints[pointIndex]
-        end
-    end
-
-    local function stopAnimation()
-        isAnimating = false
-        if currentTask then
-            task.cancel(currentTask)
-            currentTask = nil
-        end
-    end
-
-    local function startScatter()
-        local explosionPoints = {}
-        for j = 1, 60 do
-            table.insert(explosionPoints, Vector3.new(math.random(-15,15), math.random(-5,15), math.random(-15,15)))
-        end
-        currentPoints = explosionPoints
-        updatePositions()
-    end
-
-    -- دعم الأسماء المسموحة للأدوات + نظام الأوتو فاير
-    local allowedKeywords = {"ريال", "gun", "Money", "فلوس", "cash", "نقود", "سلاح", "رصاص", "weapon", "money", "coins", "cash", "currency"}
-
-    local function isToolAllowed(toolName)
-        if not toolName then return false end
-        local nameLower = string.lower(toolName)
-        for _, keyword in ipairs(allowedKeywords) do
-            if string.find(nameLower, string.lower(keyword)) then return true end
-        end
-        return false
-    end
-
-    _G.AutoFiring = true
-    local autoFireTask = nil
-    local autoFireEnabled = true
-
-    local function startAutoFire()
-        if autoFireTask then task.cancel(autoFireTask) end
-        autoFireTask = task.spawn(function()
-            while _G.AutoFiring and autoFireEnabled do
-                local currentChar = player.Character
-                if not currentChar then task.wait(0.5) continue end
-                local tool = currentChar:FindFirstChildOfClass("Tool")
-                if tool and isToolAllowed(tool.Name) then
-                    tool:Activate()
-                    task.wait(0)
-                else
-                    task.wait(0.1)
-                end
-            end
-            autoFireTask = nil
-        end)
-    end
-
-    task.spawn(function()
-        player.CharacterAdded:Connect(function(newChar)
-            task.wait(1)
-            autoFireEnabled = true
-            if _G.AutoFiring then startAutoFire() end
-        end)
-    end)
-
-    task.spawn(function()
-        task.wait(2)
-        startAutoFire()
-    end)
-
-    local function createButton(name, wordKey)
-        local btn = Instance.new("TextButton", container)
-        btn.Text = name
-        btn.Size = UDim2.new(0.92, 0, 0, 42)
-        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 13
-        btn.AutoButtonColor = false
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
-        local btnStroke = Instance.new("UIStroke", btn)
-        btnStroke.Color = Color3.fromRGB(80, 80, 90)
-        btnStroke.Thickness = 1.5
-
-        btn.MouseEnter:Connect(function()
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
-            btnStroke.Color = Color3.fromRGB(100, 100, 110)
-        end)
-
-        btn.MouseLeave:Connect(function()
-            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            btnStroke.Color = Color3.fromRGB(80, 80, 90)
-        end)
-
-        btn.MouseButton1Click:Connect(function()
-            stopAnimation()
-
-            if wordKey == "TORNADO" then
-                mode = "TORNADO"
-            elseif wordKey == "COUNTDOWN" then
-                isAnimating = true
-                mode = "SHAPE"
-                currentTask = task.spawn(function()
-                    while isAnimating do
-                        for i = 10, 1, -1 do
-                            currentPoints = Words[tostring(i)]
-                            updatePositions()
-                            task.wait(1.2)
-                        end
-                        startScatter()
-                        task.wait(5)
-                        if not isAnimating then break end
-                    end
-                end)
-            elseif wordKey == "ANIMATE" then
-                isAnimating = true
-                mode = "SHAPE"
-                currentTask = task.spawn(function()
-                    while isAnimating do
-                        currentPoints = Words["I"]
-                        updatePositions()
-                        task.wait(1.5)
-                        if not isAnimating then break end
-                        currentPoints = Words["LOVE"]
-                        updatePositions()
-                        task.wait(1.5)
-                        if not isAnimating then break end
-                        currentPoints = Words["YOU"]
-                        updatePositions()
-                        task.wait(1.5)
-                    end
-                end)
-            elseif wordKey == "TILT_ANIM" then
-                isAnimating = true
-                mode = "SHAPE"
-                local angle = 0
-                local angleDirection = 0.05
-                local minY = math.huge
-                for _, p in ipairs(Words["HAND"]) do
-                    if p.Y < minY then minY = p.Y end
-                end
-
-                currentTask = task.spawn(function()
-                    while isAnimating do
-                        angle = angle + angleDirection
-                        if angle > 0.5 then angleDirection = -0.05
-                        elseif angle < -0.5 then angleDirection = 0.05 end
-
-                        local tiltedPoints = {}
-                        local cosA = math.cos(angle)
-                        local sinA = math.sin(angle)
-
-                        for _, point in ipairs(Words["HAND"]) do
-                            local tempX = point.X
-                            local tempY = point.Y - minY
-                            local rotatedX = tempX * cosA - tempY * sinA
-                            local rotatedY = tempX * sinA + tempY * cosA
-                            table.insert(tiltedPoints, Vector3.new(rotatedX, rotatedY + minY, point.Z))
-                        end
-
-                        currentPoints = tiltedPoints
-                        updatePositions()
-                        task.wait(0.03)
-                    end
-                end)
-            else
-                mode = "SHAPE"
-                currentPoints = Words[wordKey] or Words["HAND"]
-                updatePositions()
-            end
-        end)
-    end
-
-    createButton("🌪️ إعصار", "TORNADO")
-    createButton("✋ اليد", "HAND")
-    createButton("🖕 الصبع الوسط", "MIDDLE")
-    createButton("👋 تمايل خفيف", "TILT_ANIM")
-    createButton("👋 BIG HI", "HI_BIG")
-    createButton("6️⃣ 67 (مشهور)", "67")
-    createButton("🔢 العد التنازلي", "COUNTDOWN")
-    createButton("💖 I LOVE YOU", "ANIMATE")
-    createButton("❤️ BIG HEART", "BIG_HEART")
-
-    local function captureCoin(child)
-        if child:IsA("BasePart") and not child:IsDescendantOf(character) and not child:FindFirstChild("IsOrbiting") then
-            if child.Size.X < 7 and child.Size.Y < 7 then
-                local tag = Instance.new("BoolValue", child)
-                tag.Name = "IsOrbiting"
-                child.CanCollide = false
-                child.Massless = true
-
-                local attach = Instance.new("Attachment", child)
-                local alignPos = Instance.new("AlignPosition", child)
-                alignPos.Attachment0 = attach
-                alignPos.RigidityEnabled = true
-                alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-
-                table.insert(activeCoins, {
-                    Instance = child,
-                    Align = alignPos,
-                    Offset = currentPoints[(#activeCoins % #currentPoints) + 1] or Vector3.new(0,0,0),
-                    Angle = math.random(0, 360),
-                    Height = math.random(-2, 3)
-                })
-            end
-        end
-    end
-
-    local heartbeatConnection
-    heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        if not root or not root.Parent then
-            if character and character.Parent then
-                root = character:FindFirstChild("HumanoidRootPart")
-            end
-            if not root then return end
-        end
-
-        if mode == "SHAPE" then
-            local targetCFrame = root.CFrame * CFrame.new(0, verticalOffset, 0)
-            for _, data in ipairs(activeCoins) do
-                if data.Instance and data.Align then
-                    data.Align.Position = (targetCFrame * CFrame.new(data.Offset)).Position
-                end
-            end
-        elseif mode == "TORNADO" then
-            for _, data in ipairs(activeCoins) do
-                if data.Instance and data.Align then
-                    data.Angle = data.Angle + (rotationSpeed * deltaTime)
-                    local x = math.cos(data.Angle) * orbitRadius
-                    local z = math.sin(data.Angle) * orbitRadius
-                    data.Align.Position = root.Position + Vector3.new(x, data.Height, z)
-                end
-            end
-        end
-    end)
-
-    for _, obj in ipairs(workspace:GetChildren()) do captureCoin(obj) end
-    workspace.ChildAdded:Connect(captureCoin)
-
-    player.CharacterAdded:Connect(function(newChar)
-        character = newChar
-        root = newChar:WaitForChild("HumanoidRootPart")
-        task.wait(0.5)
-    end)
-
+if not HasPermission() then
     StarterGui:SetCore("SendNotification", {
-        Title = "✨ الأشكال",
-        Text = "تم تحميل سكربت الأشكال كاملاً",
+        Title = "🔒 مقفل",
+        Text = "ليس لديك صلاحية لهذا السكربت",
         Duration = 3
     })
+    return -- ⛔ يوقف السكربت بالكامل
+end
+-- ═══════════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PART 7: سكربت الأشكال (SHAPES) - كامل مع الأوتو فاير
+-- ═══════════════════════════════════════════════════════════════════
+
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+
+local activeCoins = {}
+local currentPoints = {}
+local verticalOffset = 8
+local isAnimating = false
+local currentTask = nil
+local mode = "SHAPE"
+local orbitRadius = 7
+local rotationSpeed = 4
+
+local Words = {
+    ["HAND"] = {
+        Vector3.new(0, -3, 0), Vector3.new(1, -3, 0), Vector3.new(-1, -3, 0),
+        Vector3.new(0, -1.5, 0), Vector3.new(1.5, -1.5, 0), Vector3.new(-1.5, -1.5, 0),
+        Vector3.new(0, 0, 0), Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
+        Vector3.new(0, 1.5, 0), Vector3.new(2, 1.5, 0), Vector3.new(-2, 1.5, 0),
+        Vector3.new(3.5, 0.5, 0), Vector3.new(4.5, 1.5, 0), Vector3.new(5.5, 2.5, 0),
+        Vector3.new(2.5, 3, 0), Vector3.new(2.8, 4.5, 0), Vector3.new(3.1, 6, 0),
+        Vector3.new(0.5, 3.5, 0), Vector3.new(0.5, 5.5, 0), Vector3.new(0.5, 7.5, 0),
+        Vector3.new(-1.5, 3, 0), Vector3.new(-1.8, 4.5, 0), Vector3.new(-2.1, 6, 0),
+        Vector3.new(-3.5, 2, 0), Vector3.new(-4.5, 3.5, 0), Vector3.new(-5, 4.5, 0)
+    },
+    ["MIDDLE"] = {
+        Vector3.new(0, -3, 0), Vector3.new(1, -3, 0), Vector3.new(-1, -3, 0),
+        Vector3.new(0, -1, 0), Vector3.new(1.5, -1, 0), Vector3.new(-1.5, -1, 0),
+        Vector3.new(0, 0.5, 0), Vector3.new(2, 0.5, 0), Vector3.new(-2, 0.5, 0),
+        Vector3.new(0, 2, 0), Vector3.new(2, 2, 0), Vector3.new(-2, 2, 0),
+        Vector3.new(3.5, 1, 0), Vector3.new(4, 2, 0), Vector3.new(4.5, 3, 0),
+        Vector3.new(2, 3, 0), Vector3.new(2, 3.5, 0),
+        Vector3.new(0.5, 3.5, 0), Vector3.new(0.5, 5.5, 0), Vector3.new(0.5, 7.5, 0), Vector3.new(0.5, 9, 0),
+        Vector3.new(-1.5, 3, 0), Vector3.new(-1.8, 3.8, 0),
+        Vector3.new(-3.5, 2.5, 0), Vector3.new(-4, 3.2, 0)
+    },
+    ["HI_BIG"] = {
+        Vector3.new(4,0,0), Vector3.new(4,1,0), Vector3.new(4,2,0), Vector3.new(4,3,0), Vector3.new(4,4,0), Vector3.new(4,5,0), Vector3.new(4,6,0),
+        Vector3.new(3,3,0), Vector3.new(2,3,0), Vector3.new(1,3,0), Vector3.new(0,3,0),
+        Vector3.new(-1,0,0), Vector3.new(-1,1,0), Vector3.new(-1,2,0), Vector3.new(-1,3,0), Vector3.new(-1,4,0), Vector3.new(-1,5,0), Vector3.new(-1,6,0),
+        Vector3.new(-4,0,0), Vector3.new(-5,0,0), Vector3.new(-6,0,0), Vector3.new(-5,1,0), Vector3.new(-5,2,0), Vector3.new(-5,3,0), Vector3.new(-5,4,0), Vector3.new(-5,5,0), Vector3.new(-4,6,0), Vector3.new(-5,6,0), Vector3.new(-6,6,0)
+    },
+    ["BIG_HEART"] = {
+        Vector3.new(0,-2,0), Vector3.new(1,-1,0), Vector3.new(-1,-1,0), Vector3.new(2,0,0), Vector3.new(-2,0,0),
+        Vector3.new(3,1,0), Vector3.new(-3,1,0), Vector3.new(4,2,0), Vector3.new(-4,2,0), Vector3.new(5,3,0), Vector3.new(-5,3,0),
+        Vector3.new(6,4,0), Vector3.new(-6,4,0), Vector3.new(6,5,0), Vector3.new(-6,5,0), Vector3.new(6,6,0), Vector3.new(-6,6,0),
+        Vector3.new(5,7,0), Vector3.new(4,8,0), Vector3.new(3,8,0), Vector3.new(2,7,0), Vector3.new(1,6,0),
+        Vector3.new(0,5,0), Vector3.new(-1,6,0), Vector3.new(-2,7,0), Vector3.new(-3,8,0), Vector3.new(-4,8,0), Vector3.new(-5,7,0)
+    },
+    ["I"] = {
+        Vector3.new(0,0,0), Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0),
+        Vector3.new(1,0,0), Vector3.new(-1,0,0), Vector3.new(1,5,0), Vector3.new(-1,5,0)
+    },
+    ["LOVE"] = {
+        Vector3.new(7,0,0), Vector3.new(7,1,0), Vector3.new(7,2,0), Vector3.new(7,3,0), Vector3.new(7,4,0), Vector3.new(6,0,0), Vector3.new(5,0,0),
+        Vector3.new(3,0,0), Vector3.new(3,1,0), Vector3.new(3,2,0), Vector3.new(3,3,0), Vector3.new(3,4,0), Vector3.new(2,4,0), Vector3.new(1,4,0), Vector3.new(0,4,0), Vector3.new(0,3,0), Vector3.new(0,2,0), Vector3.new(0,1,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0),
+        Vector3.new(-2,4,0), Vector3.new(-2,3,0), Vector3.new(-3,2,0), Vector3.new(-3,1,0), Vector3.new(-4,0,0), Vector3.new(-5,1,0), Vector3.new(-5,2,0), Vector3.new(-6,3,0), Vector3.new(-6,4,0),
+        Vector3.new(-8,0,0), Vector3.new(-8,1,0), Vector3.new(-8,2,0), Vector3.new(-8,3,0), Vector3.new(-8,4,0), Vector3.new(-9,4,0), Vector3.new(-10,4,0), Vector3.new(-9,2,0), Vector3.new(-9,0,0), Vector3.new(-10,0,0)
+    },
+    ["YOU"] = {
+        Vector3.new(4,4,0), Vector3.new(3,3,0), Vector3.new(2,2,0), Vector3.new(1,3,0), Vector3.new(0,4,0), Vector3.new(2,1,0), Vector3.new(2,0,0),
+        Vector3.new(-2,0,0), Vector3.new(-2,1,0), Vector3.new(-2,2,0), Vector3.new(-2,3,0), Vector3.new(-2,4,0), Vector3.new(-3,4,0), Vector3.new(-4,4,0), Vector3.new(-5,4,0), Vector3.new(-5,3,0), Vector3.new(-5,2,0), Vector3.new(-5,1,0), Vector3.new(-5,0,0), Vector3.new(-4,0,0), Vector3.new(-3,0,0),
+        Vector3.new(-7,4,0), Vector3.new(-7,3,0), Vector3.new(-7,2,0), Vector3.new(-7,1,0), Vector3.new(-8,0,0), Vector3.new(-9,0,0), Vector3.new(-10,0,0), Vector3.new(-11,1,0), Vector3.new(-11,2,0), Vector3.new(-11,3,0), Vector3.new(-11,4,0)
+    },
+    ["67"] = {
+        Vector3.new(6,6,0), Vector3.new(5,6,0), Vector3.new(4,6,0), Vector3.new(3,6,0), Vector3.new(2,6,0),
+        Vector3.new(6,5,0), Vector3.new(6,4,0), Vector3.new(6,3,0), Vector3.new(6,2,0), Vector3.new(6,1,0),
+        Vector3.new(2,3,0), Vector3.new(3,3,0), Vector3.new(4,3,0), Vector3.new(5,3,0),
+        Vector3.new(2,2,0), Vector3.new(2,1,0),
+        Vector3.new(2,0,0), Vector3.new(3,0,0), Vector3.new(4,0,0), Vector3.new(5,0,0), Vector3.new(6,0,0),
+        Vector3.new(-6,6,0), Vector3.new(-5,6,0), Vector3.new(-4,6,0), Vector3.new(-3,6,0), Vector3.new(-2,6,0),
+        Vector3.new(-6,5,0), Vector3.new(-5,4,0), Vector3.new(-4,3,0), Vector3.new(-3,2,0), Vector3.new(-2,1,0), Vector3.new(-1,0,0)
+    },
+    ["1"] = {Vector3.new(0,0,0), Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0), Vector3.new(0,6,0)},
+    ["2"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-1,3,0), Vector3.new(0,3,0), Vector3.new(1,3,0), Vector3.new(2,3,0), Vector3.new(2,2,0), Vector3.new(2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
+    ["3"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-1,3,0), Vector3.new(0,3,0), Vector3.new(1,3,0), Vector3.new(2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0)},
+    ["4"] = {Vector3.new(2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(2,3,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
+    ["5"] = {Vector3.new(-2,6,0), Vector3.new(-1,6,0), Vector3.new(0,6,0), Vector3.new(1,6,0), Vector3.new(2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0), Vector3.new(-1,0,0), Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(2,0,0)},
+    ["6"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(2,2,0), Vector3.new(-2,2,0), Vector3.new(2,1,0), Vector3.new(-2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
+    ["7"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(-2,5,0), Vector3.new(-2,4,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
+    ["8"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(-2,5,0), Vector3.new(2,4,0), Vector3.new(-2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(2,2,0), Vector3.new(-2,2,0), Vector3.new(2,1,0), Vector3.new(-2,1,0), Vector3.new(2,0,0), Vector3.new(1,0,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0)},
+    ["9"] = {Vector3.new(2,6,0), Vector3.new(1,6,0), Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(2,5,0), Vector3.new(-2,5,0), Vector3.new(2,4,0), Vector3.new(-2,4,0), Vector3.new(1,3,0), Vector3.new(0,3,0), Vector3.new(-1,3,0), Vector3.new(-2,3,0), Vector3.new(-2,2,0), Vector3.new(-2,1,0), Vector3.new(-2,0,0)},
+    ["10"] = {
+        Vector3.new(3,6,0), Vector3.new(3,5,0), Vector3.new(3,4,0), Vector3.new(3,3,0), Vector3.new(3,2,0), Vector3.new(3,1,0), Vector3.new(3,0,0),
+        Vector3.new(0,6,0), Vector3.new(-1,6,0), Vector3.new(-2,6,0), Vector3.new(0,0,0), Vector3.new(-1,0,0), Vector3.new(-2,0,0),
+        Vector3.new(0,1,0), Vector3.new(0,2,0), Vector3.new(0,3,0), Vector3.new(0,4,0), Vector3.new(0,5,0),
+        Vector3.new(-2,1,0), Vector3.new(-2,2,0), Vector3.new(-2,3,0), Vector3.new(-2,4,0), Vector3.new(-2,5,0)
+    }
+}
+currentPoints = Words["HAND"]
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PremiumOrbitSystem"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame", screenGui)
+frame.Size = UDim2.new(0, 200, 0, 380)
+frame.Position = UDim2.new(0.02, 0, 0.35, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.2
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local titleFrame = Instance.new("Frame", frame)
+titleFrame.Size = UDim2.new(1, 0, 0, 35)
+titleFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+titleFrame.BorderSizePixel = 0
+
+local title = Instance.new("TextLabel", titleFrame)
+title.Text = "✨ مسدس الأشكال ✨"
+title.Size = UDim2.new(1, 0, 1, 0)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.TextStrokeTransparency = 0.7
+
+Instance.new("UICorner", titleFrame).CornerRadius = UDim.new(0, 12)
+
+local container = Instance.new("ScrollingFrame", frame)
+container.Size = UDim2.new(1, 0, 1, -100)
+container.Position = UDim2.new(0, 0, 0, 40)
+container.BackgroundTransparency = 1
+container.ScrollBarThickness = 8
+container.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+container.CanvasSize = UDim2.new(0, 0, 0, 470)
+
+local layout = Instance.new("UIListLayout", container)
+layout.Padding = UDim.new(0, 8)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local function updatePositions()
+    for i, data in ipairs(activeCoins) do
+        local pointIndex = (i % #currentPoints) + 1
+        data.Offset = currentPoints[pointIndex]
+    end
 end
 
-LoadShapesScript()
+local function stopAnimation()
+    isAnimating = false
+    if currentTask then
+        task.cancel(currentTask)
+        currentTask = nil
+    end
+end
+
+local function startScatter()
+    local explosionPoints = {}
+    for j = 1, 60 do
+        table.insert(explosionPoints, Vector3.new(math.random(-15,15), math.random(-5,15), math.random(-15,15)))
+    end
+    currentPoints = explosionPoints
+    updatePositions()
+end
+
+-- دعم الأسماء المسموحة للأدوات + نظام الأوتو فاير
+local allowedKeywords = {"ريال", "gun", "Money", "فلوس", "cash", "نقود", "سلاح", "رصاص", "weapon", "money", "coins", "cash", "currency"}
+
+local function isToolAllowed(toolName)
+    if not toolName then return false end
+    local nameLower = string.lower(toolName)
+    for _, keyword in ipairs(allowedKeywords) do
+        if string.find(nameLower, string.lower(keyword)) then return true end
+    end
+    return false
+end
+
+_G.AutoFiring = true
+local autoFireTask = nil
+local autoFireEnabled = true
+
+local function startAutoFire()
+    if autoFireTask then task.cancel(autoFireTask) end
+    autoFireTask = task.spawn(function()
+        while _G.AutoFiring and autoFireEnabled do
+            local currentChar = player.Character
+            if not currentChar then task.wait(0.5) continue end
+            local tool = currentChar:FindFirstChildOfClass("Tool")
+            if tool and isToolAllowed(tool.Name) then
+                tool:Activate()
+                task.wait(0)
+            else
+                task.wait(0.1)
+            end
+        end
+        autoFireTask = nil
+    end)
+end
+
+task.spawn(function()
+    player.CharacterAdded:Connect(function(newChar)
+        task.wait(1)
+        autoFireEnabled = true
+        if _G.AutoFiring then startAutoFire() end
+    end)
+end)
+
+task.spawn(function()
+    task.wait(2)
+    startAutoFire()
+end)
+
+local function createButton(name, wordKey)
+    local btn = Instance.new("TextButton", container)
+    btn.Text = name
+    btn.Size = UDim2.new(0.92, 0, 0, 42)
+    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    local btnStroke = Instance.new("UIStroke", btn)
+    btnStroke.Color = Color3.fromRGB(80, 80, 90)
+    btnStroke.Thickness = 1.5
+
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+        btnStroke.Color = Color3.fromRGB(100, 100, 110)
+    end)
+
+    btn.MouseLeave:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+        btnStroke.Color = Color3.fromRGB(80, 80, 90)
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        stopAnimation()
+
+        if wordKey == "TORNADO" then
+            mode = "TORNADO"
+        elseif wordKey == "COUNTDOWN" then
+            isAnimating = true
+            mode = "SHAPE"
+            currentTask = task.spawn(function()
+                while isAnimating do
+                    for i = 10, 1, -1 do
+                        currentPoints = Words[tostring(i)]
+                        updatePositions()
+                        task.wait(1.2)
+                    end
+                    startScatter()
+                    task.wait(5)
+                    if not isAnimating then break end
+                end
+            end)
+        elseif wordKey == "ANIMATE" then
+            isAnimating = true
+            mode = "SHAPE"
+            currentTask = task.spawn(function()
+                while isAnimating do
+                    currentPoints = Words["I"]
+                    updatePositions()
+                    task.wait(1.5)
+                    if not isAnimating then break end
+                    currentPoints = Words["LOVE"]
+                    updatePositions()
+                    task.wait(1.5)
+                    if not isAnimating then break end
+                    currentPoints = Words["YOU"]
+                    updatePositions()
+                    task.wait(1.5)
+                end
+            end)
+        elseif wordKey == "TILT_ANIM" then
+            isAnimating = true
+            mode = "SHAPE"
+            local angle = 0
+            local angleDirection = 0.05
+            local minY = math.huge
+            for _, p in ipairs(Words["HAND"]) do
+                if p.Y < minY then minY = p.Y end
+            end
+
+            currentTask = task.spawn(function()
+                while isAnimating do
+                    angle = angle + angleDirection
+                    if angle > 0.5 then angleDirection = -0.05
+                    elseif angle < -0.5 then angleDirection = 0.05 end
+
+                    local tiltedPoints = {}
+                    local cosA = math.cos(angle)
+                    local sinA = math.sin(angle)
+
+                    for _, point in ipairs(Words["HAND"]) do
+                        local tempX = point.X
+                        local tempY = point.Y - minY
+                        local rotatedX = tempX * cosA - tempY * sinA
+                        local rotatedY = tempX * sinA + tempY * cosA
+                        table.insert(tiltedPoints, Vector3.new(rotatedX, rotatedY + minY, point.Z))
+                    end
+
+                    currentPoints = tiltedPoints
+                    updatePositions()
+                    task.wait(0.03)
+                end
+            end)
+        else
+            mode = "SHAPE"
+            currentPoints = Words[wordKey] or Words["HAND"]
+            updatePositions()
+        end
+    end)
+end
+
+createButton("🌪️ إعصار", "TORNADO")
+createButton("✋ اليد", "HAND")
+createButton("🖕 الصبع الوسط", "MIDDLE")
+createButton("👋 تمايل خفيف", "TILT_ANIM")
+createButton("👋 BIG HI", "HI_BIG")
+createButton("6️⃣ 67 (مشهور)", "67")
+createButton("🔢 العد التنازلي", "COUNTDOWN")
+createButton("💖 I LOVE YOU", "ANIMATE")
+createButton("❤️ BIG HEART", "BIG_HEART")
+
+local function captureCoin(child)
+    if child:IsA("BasePart") and not child:IsDescendantOf(character) and not child:FindFirstChild("IsOrbiting") then
+        if child.Size.X < 7 and child.Size.Y < 7 then
+            local tag = Instance.new("BoolValue", child)
+            tag.Name = "IsOrbiting"
+            child.CanCollide = false
+            child.Massless = true
+
+            local attach = Instance.new("Attachment", child)
+            local alignPos = Instance.new("AlignPosition", child)
+            alignPos.Attachment0 = attach
+            alignPos.RigidityEnabled = true
+            alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+
+            table.insert(activeCoins, {
+                Instance = child,
+                Align = alignPos,
+                Offset = currentPoints[(#activeCoins % #currentPoints) + 1] or Vector3.new(0,0,0),
+                Angle = math.random(0, 360),
+                Height = math.random(-2, 3)
+            })
+        end
+    end
+end
+
+local heartbeatConnection
+heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
+    if not root or not root.Parent then
+        if character and character.Parent then
+            root = character:FindFirstChild("HumanoidRootPart")
+        end
+        if not root then return end
+    end
+
+    if mode == "SHAPE" then
+        local targetCFrame = root.CFrame * CFrame.new(0, verticalOffset, 0)
+        for _, data in ipairs(activeCoins) do
+            if data.Instance and data.Align then
+                data.Align.Position = (targetCFrame * CFrame.new(data.Offset)).Position
+            end
+        end
+    elseif mode == "TORNADO" then
+        for _, data in ipairs(activeCoins) do
+            if data.Instance and data.Align then
+                data.Angle = data.Angle + (rotationSpeed * deltaTime)
+                local x = math.cos(data.Angle) * orbitRadius
+                local z = math.sin(data.Angle) * orbitRadius
+                data.Align.Position = root.Position + Vector3.new(x, data.Height, z)
+            end
+        end
+    end
+end)
+
+for _, obj in ipairs(workspace:GetChildren()) do captureCoin(obj) end
+workspace.ChildAdded:Connect(captureCoin)
+
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    root = newChar:WaitForChild("HumanoidRootPart")
+    task.wait(0.5)
+end)
+
+StarterGui:SetCore("SendNotification", {
+    Title = "✨ الأشكال",
+    Text = "تم تحميل سكربت الأشكال كاملاً",
+    Duration = 3
+})
