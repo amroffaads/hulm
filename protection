@@ -1,0 +1,1048 @@
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+local playerName = LocalPlayer.Name
+
+local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
+local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
+
+local function CheckPermission(permName)
+    local function tryUrl(base)
+        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
+        local success, response = pcall(function()
+            return game:HttpGet(fullUrl)
+        end)
+        if not success then return nil end
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(response)
+        end)
+        if not ok or type(data) ~= "table" then return nil end
+        local perms = data.permissions or data
+        return perms[permName] == true
+    end
+    local result = tryUrl(API_BASE)
+    if result == nil then result = tryUrl(API_BACKUP) end
+    return result == true
+end
+
+if not CheckPermission("protection") then
+    return
+end
+
+local function LoadProtectionScript()
+    local localPlayer = Players.LocalPlayer
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "UnifiedProtectionSystem"
+    ScreenGui.Parent = CoreGui
+    ScreenGui.ResetOnSpawn = false
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 200, 0, 430)
+    MainFrame.Position = UDim2.new(0.5, -100, 0.2, 0)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+    local Title = Instance.new("TextLabel")
+    Title.Text = "🛡️ الحماية"
+    Title.Size = UDim2.new(1, -40, 0, 30)
+    Title.Position = UDim2.new(0, 10, 0, 5)
+    Title.BackgroundTransparency = 1
+    Title.TextColor3 = Color3.new(1, 1, 1)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 16
+    Title.TextXAlignment = Enum.TextXAlignment.Right
+    Title.Parent = MainFrame
+
+    local MinusBtn = Instance.new("TextButton")
+    MinusBtn.Text = "−"
+    MinusBtn.Size = UDim2.new(0, 24, 0, 24)
+    MinusBtn.Position = UDim2.new(0, 5, 0, 5)
+    MinusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    MinusBtn.TextColor3 = Color3.new(1, 1, 1)
+    MinusBtn.Font = Enum.Font.SourceSansBold
+    MinusBtn.TextSize = 18
+    Instance.new("UICorner", MinusBtn).CornerRadius = UDim.new(0, 6)
+    MinusBtn.Parent = MainFrame
+
+    -- ====== القسم الأول: مضاد النسخ العادي ======
+    local AntiCopyEnabled = false
+    local IsResetting = false
+    local CharacterTime = 0
+
+    local AntiCopyConfig = {
+        AntiCopyAndSize = true,
+        WaitTime = 0.4
+    }
+
+    local WHITELISTED_CLASSES = {
+        ["Accessory"] = true, ["Shirt"] = true, ["Pants"] = true,
+        ["BodyColors"] = true, ["ShirtGraphic"] = true, ["Tool"] = true,
+        ["Humanoid"] = true, ["NumberValue"] = true, ["Folder"] = true,
+        ["BillboardGui"] = true, ["SurfaceGui"] = true, ["Decal"] = true
+    }
+
+    local AntiCopyFrame = Instance.new("Frame")
+    AntiCopyFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiCopyFrame.Position = UDim2.new(0, 10, 0, 40)
+    AntiCopyFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiCopyFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiCopyFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiCopyLabel = Instance.new("TextLabel")
+    AntiCopyLabel.Text = "مضاد النسخ (مجاني):"
+    AntiCopyLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiCopyLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiCopyLabel.BackgroundTransparency = 1
+    AntiCopyLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiCopyLabel.Font = Enum.Font.SourceSans
+    AntiCopyLabel.TextSize = 12
+    AntiCopyLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiCopyLabel.Parent = AntiCopyFrame
+
+    local AntiCopyBtn = Instance.new("TextButton")
+    AntiCopyBtn.Text = "OFF"
+    AntiCopyBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiCopyBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiCopyBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiCopyBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiCopyBtn.Font = Enum.Font.SourceSansBold
+    AntiCopyBtn.TextSize = 12
+    Instance.new("UICorner", AntiCopyBtn).CornerRadius = UDim.new(0, 6)
+    AntiCopyBtn.Parent = AntiCopyFrame
+
+    -- ====== القسم الثاني: مضاد الرقص المجاني ======
+    local FreeAntiDanceEnabled = false
+    local danceStopperRunning = false
+    local danceStopperCooldown = 0
+
+    local IGNORED_ITEMS_FREE = {
+        ["AnimationTrack"] = true, ["Animation1"] = true, ["Animation2"] = true,
+        ["Animation3"] = true, ["Animation4"] = true, ["Animation5"] = true,
+        ["Animation6"] = true, ["Animation7"] = true, ["Animation8"] = true
+    }
+
+    local FreeDanceFrame = Instance.new("Frame")
+    FreeDanceFrame.Size = UDim2.new(1, -20, 0, 32)
+    FreeDanceFrame.Position = UDim2.new(0, 10, 0, 80)
+    FreeDanceFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    FreeDanceFrame.Parent = MainFrame
+    Instance.new("UICorner", FreeDanceFrame).CornerRadius = UDim.new(0, 8)
+
+    local FreeDanceLabel = Instance.new("TextLabel")
+    FreeDanceLabel.Text = "مضاد رقص(مجاني):"
+    FreeDanceLabel.Size = UDim2.new(0, 105, 1, 0)
+    FreeDanceLabel.Position = UDim2.new(0, 10, 0, 0)
+    FreeDanceLabel.BackgroundTransparency = 1
+    FreeDanceLabel.TextColor3 = Color3.new(1, 1, 1)
+    FreeDanceLabel.Font = Enum.Font.SourceSans
+    FreeDanceLabel.TextSize = 12
+    FreeDanceLabel.TextXAlignment = Enum.TextXAlignment.Right
+    FreeDanceLabel.Parent = FreeDanceFrame
+
+    local FreeDanceBtn = Instance.new("TextButton")
+    FreeDanceBtn.Text = "OFF"
+    FreeDanceBtn.Size = UDim2.new(0, 50, 0, 24)
+    FreeDanceBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    FreeDanceBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    FreeDanceBtn.TextColor3 = Color3.new(1, 1, 1)
+    FreeDanceBtn.Font = Enum.Font.SourceSansBold
+    FreeDanceBtn.TextSize = 12
+    Instance.new("UICorner", FreeDanceBtn).CornerRadius = UDim.new(0, 6)
+    FreeDanceBtn.Parent = FreeDanceFrame
+
+    -- ====== القسم الثالث: مضاد الرقص (undog) ======
+    local AntiDanceEnabled = false
+    local lastUndogTime = 0
+    local COOLDOWN = 0
+
+    local IGNORED_ITEMS_DANCE = {
+        ["HDAdminStarterCharacter"] = true, ["HDAdminFlyForce"] = true, ["HDAdminFlyGyro"] = true,
+        ["AnimationTrack"] = true, ["Animation1"] = true, ["Animation2"] = true,
+        ["Animation3"] = true, ["Animation4"] = true, ["Animation5"] = true,
+        ["Animation6"] = true, ["Animation7"] = true, ["Animation8"] = true
+    }
+
+    local AntiDanceFrame = Instance.new("Frame")
+    AntiDanceFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiDanceFrame.Position = UDim2.new(0, 10, 0, 120)
+    AntiDanceFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiDanceFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiDanceFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiDanceLabel = Instance.new("TextLabel")
+    AntiDanceLabel.Text = "مضاد رقص (ادمن):"
+    AntiDanceLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiDanceLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiDanceLabel.BackgroundTransparency = 1
+    AntiDanceLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiDanceLabel.Font = Enum.Font.SourceSans
+    AntiDanceLabel.TextSize = 12
+    AntiDanceLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiDanceLabel.Parent = AntiDanceFrame
+
+    local AntiDanceBtn = Instance.new("TextButton")
+    AntiDanceBtn.Text = "OFF"
+    AntiDanceBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiDanceBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiDanceBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiDanceBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiDanceBtn.Font = Enum.Font.SourceSansBold
+    AntiDanceBtn.TextSize = 12
+    Instance.new("UICorner", AntiDanceBtn).CornerRadius = UDim.new(0, 6)
+    AntiDanceBtn.Parent = AntiDanceFrame
+
+    -- ====== القسم الرابع: مضاد الفلينج ======
+    local SafeLocation = Vector3.new(1251.358, 20.002, 434.451)
+    local SystemEnabled = false
+    local missingTime = 0
+    local isProtectorActive = false
+
+    local AntiFlyFrame = Instance.new("Frame")
+    AntiFlyFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiFlyFrame.Position = UDim2.new(0, 10, 0, 160)
+    AntiFlyFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiFlyFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiFlyFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiFlyLabel = Instance.new("TextLabel")
+    AntiFlyLabel.Text = " مضاد الفلينج:"
+    AntiFlyLabel.Size = UDim2.new(0, 90, 1, 0)
+    AntiFlyLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiFlyLabel.BackgroundTransparency = 1
+    AntiFlyLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiFlyLabel.Font = Enum.Font.SourceSans
+    AntiFlyLabel.TextSize = 12
+    AntiFlyLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiFlyLabel.Parent = AntiFlyFrame
+
+    local AntiFlyBtn = Instance.new("TextButton")
+    AntiFlyBtn.Text = "OFF"
+    AntiFlyBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiFlyBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiFlyBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiFlyBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiFlyBtn.Font = Enum.Font.SourceSansBold
+    AntiFlyBtn.TextSize = 12
+    Instance.new("UICorner", AntiFlyBtn).CornerRadius = UDim.new(0, 6)
+    AntiFlyBtn.Parent = AntiFlyFrame
+
+    -- ====== القسم الخامس: مضاد كلبش الأدمن ======
+    local AntiCuffEnabled = false
+    local lastReTime = 0
+    local RE_COOLDOWN = 1
+
+    local ADMIN_CUFF_KEYWORDS = {
+        "incuffingsession", "incuff", "cuffingsession", "admincuff",
+        "handcufftool", "arresttool", "restraint", "restrained",
+        "handcuffs", "cuff"
+    }
+
+    local AntiCuffFrame = Instance.new("Frame")
+    AntiCuffFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiCuffFrame.Position = UDim2.new(0, 10, 0, 200)
+    AntiCuffFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiCuffFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiCuffFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiCuffLabel = Instance.new("TextLabel")
+    AntiCuffLabel.Text = "مضاد كلبش (ادمن):"
+    AntiCuffLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiCuffLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiCuffLabel.BackgroundTransparency = 1
+    AntiCuffLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffLabel.Font = Enum.Font.SourceSans
+    AntiCuffLabel.TextSize = 12
+    AntiCuffLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiCuffLabel.Parent = AntiCuffFrame
+
+    local AntiCuffBtn = Instance.new("TextButton")
+    AntiCuffBtn.Text = "OFF"
+    AntiCuffBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiCuffBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiCuffBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiCuffBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffBtn.Font = Enum.Font.SourceSansBold
+    AntiCuffBtn.TextSize = 12
+    Instance.new("UICorner", AntiCuffBtn).CornerRadius = UDim.new(0, 6)
+    AntiCuffBtn.Parent = AntiCuffFrame
+
+    -- ====== القسم السادس: مضاد نسخ الأدمن ======
+    local AntiCopyAdminEnabled = false
+    local IsResettingAdmin = false
+    local CharacterTimeAdmin = 0
+
+    local ConfigAdmin = {
+        AntiCopyAndSize = true,
+        WaitTime = 0.2
+    }
+
+    local WHITELISTED_CLASSES_ADMIN = {
+        ["Accessory"] = true, ["Shirt"] = true, ["Pants"] = true,
+        ["BodyColors"] = true, ["ShirtGraphic"] = true, ["Tool"] = true,
+        ["Humanoid"] = true, ["NumberValue"] = true, ["Folder"] = true
+    }
+
+    local AntiCopyAdminFrame = Instance.new("Frame")
+    AntiCopyAdminFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiCopyAdminFrame.Position = UDim2.new(0, 10, 0, 240)
+    AntiCopyAdminFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiCopyAdminFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiCopyAdminFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiCopyAdminLabel = Instance.new("TextLabel")
+    AntiCopyAdminLabel.Text = "مضاد نسخ (ادمن):"
+    AntiCopyAdminLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiCopyAdminLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiCopyAdminLabel.BackgroundTransparency = 1
+    AntiCopyAdminLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiCopyAdminLabel.Font = Enum.Font.SourceSans
+    AntiCopyAdminLabel.TextSize = 12
+    AntiCopyAdminLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiCopyAdminLabel.Parent = AntiCopyAdminFrame
+
+    local AntiCopyAdminBtn = Instance.new("TextButton")
+    AntiCopyAdminBtn.Text = "OFF"
+    AntiCopyAdminBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiCopyAdminBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiCopyAdminBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiCopyAdminBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiCopyAdminBtn.Font = Enum.Font.SourceSansBold
+    AntiCopyAdminBtn.TextSize = 12
+    Instance.new("UICorner", AntiCopyAdminBtn).CornerRadius = UDim.new(0, 6)
+    AntiCopyAdminBtn.Parent = AntiCopyAdminFrame
+
+    -- ====== القسم السابع: مضاد كلبش (مسدس بات مان) ======
+    getgenv().AntiCuff = getgenv().AntiCuff or {
+        Desync = false,
+        DirectionToShoot = "Behind"
+    }
+
+    local TOOL_NAME = "فلوس بات مان"
+    local isCuffedSpecial = false
+    local AntiCuffSpecialEnabled = false
+
+    getgenv().AntiCuff.Direction = nil
+    if getgenv().AntiCuff.DirectionToShoot == "Behind" then
+        getgenv().AntiCuff.Direction = Vector3.new(0, 0, -1)
+    elseif getgenv().AntiCuff.DirectionToShoot == "Down" then
+        getgenv().AntiCuff.Direction = Vector3.new(0, -1, 0)
+    elseif getgenv().AntiCuff.DirectionToShoot == "ForWard" then
+        getgenv().AntiCuff.Direction = Vector3.new(0, 0, 1)
+    elseif getgenv().AntiCuff.DirectionToShoot == "Left" then
+        getgenv().AntiCuff.Direction = Vector3.new(-1, 0, 0)
+    elseif getgenv().AntiCuff.DirectionToShoot == "One" then
+        getgenv().AntiCuff.Direction = Vector3.new(1, 1, 1)
+    elseif getgenv().AntiCuff.DirectionToShoot == "Right" then
+        getgenv().AntiCuff.Direction = Vector3.new(1, 0, 0)
+    elseif getgenv().AntiCuff.DirectionToShoot == "Up" then
+        getgenv().AntiCuff.Direction = Vector3.new(0, 1, 0)
+    elseif getgenv().AntiCuff.DirectionToShoot == "Zero" then
+        getgenv().AntiCuff.Direction = Vector3.new(0, 0, 0)
+    end
+
+    local AntiCuffSpecialFrame = Instance.new("Frame")
+    AntiCuffSpecialFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiCuffSpecialFrame.Position = UDim2.new(0, 10, 0, 280)
+    AntiCuffSpecialFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiCuffSpecialFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiCuffSpecialFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiCuffSpecialLabel = Instance.new("TextLabel")
+    AntiCuffSpecialLabel.Text = "مضاد كلبش (بات مان):"
+    AntiCuffSpecialLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiCuffSpecialLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiCuffSpecialLabel.BackgroundTransparency = 1
+    AntiCuffSpecialLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffSpecialLabel.Font = Enum.Font.SourceSans
+    AntiCuffSpecialLabel.TextSize = 12
+    AntiCuffSpecialLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiCuffSpecialLabel.Parent = AntiCuffSpecialFrame
+
+    local AntiCuffSpecialBtn = Instance.new("TextButton")
+    AntiCuffSpecialBtn.Text = "OFF"
+    AntiCuffSpecialBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiCuffSpecialBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiCuffSpecialBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiCuffSpecialBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffSpecialBtn.Font = Enum.Font.SourceSansBold
+    AntiCuffSpecialBtn.TextSize = 12
+    Instance.new("UICorner", AntiCuffSpecialBtn).CornerRadius = UDim.new(0, 6)
+    AntiCuffSpecialBtn.Parent = AntiCuffSpecialFrame
+
+    -- ====== القسم الثامن: مضاد كلبش العادي (الجلوس) ======
+    local AntiCuffNormalEnabled = false
+
+    local AntiCuffNormalFrame = Instance.new("Frame")
+    AntiCuffNormalFrame.Size = UDim2.new(1, -20, 0, 32)
+    AntiCuffNormalFrame.Position = UDim2.new(0, 10, 0, 320)
+    AntiCuffNormalFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    AntiCuffNormalFrame.Parent = MainFrame
+    Instance.new("UICorner", AntiCuffNormalFrame).CornerRadius = UDim.new(0, 8)
+
+    local AntiCuffNormalLabel = Instance.new("TextLabel")
+    AntiCuffNormalLabel.Text = "مضاد كلبش(مجاني):"
+    AntiCuffNormalLabel.Size = UDim2.new(0, 105, 1, 0)
+    AntiCuffNormalLabel.Position = UDim2.new(0, 10, 0, 0)
+    AntiCuffNormalLabel.BackgroundTransparency = 1
+    AntiCuffNormalLabel.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffNormalLabel.Font = Enum.Font.SourceSans
+    AntiCuffNormalLabel.TextSize = 12
+    AntiCuffNormalLabel.TextXAlignment = Enum.TextXAlignment.Right
+    AntiCuffNormalLabel.Parent = AntiCuffNormalFrame
+
+    local AntiCuffNormalBtn = Instance.new("TextButton")
+    AntiCuffNormalBtn.Text = "OFF"
+    AntiCuffNormalBtn.Size = UDim2.new(0, 50, 0, 24)
+    AntiCuffNormalBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    AntiCuffNormalBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    AntiCuffNormalBtn.TextColor3 = Color3.new(1, 1, 1)
+    AntiCuffNormalBtn.Font = Enum.Font.SourceSansBold
+    AntiCuffNormalBtn.TextSize = 12
+    Instance.new("UICorner", AntiCuffNormalBtn).CornerRadius = UDim.new(0, 6)
+    AntiCuffNormalBtn.Parent = AntiCuffNormalFrame
+
+    -- ====== القسم التاسع: نظام Desync ======
+    local DesyncSystemEnabled = false
+    local C_Desync = {
+        Enabled = false,
+        OldPosition = nil
+    }
+
+    local dummyPart = nil
+    local originalCameraSubject = nil
+    local toggleDesyncLoop = false
+    local desyncLoopThread = nil
+
+    local function resetCamera()
+        if dummyPart then
+            if localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") then
+                Workspace.CurrentCamera.CameraSubject = localPlayer.Character.Humanoid
+            else
+                Workspace.CurrentCamera.CameraSubject = originalCameraSubject
+            end
+            dummyPart:Destroy()
+            dummyPart = nil
+        end
+    end
+
+    local function enableDesync()
+        C_Desync.Enabled = true
+    end
+
+    local function disableDesync()
+        C_Desync.Enabled = false
+        if C_Desync.OldPosition and localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            localPlayer.Character.HumanoidRootPart.CFrame = C_Desync.OldPosition
+        end
+        C_Desync.OldPosition = nil
+        resetCamera()
+    end
+
+    local function startDesyncLoop()
+        if desyncLoopThread then return end
+        desyncLoopThread = task.spawn(function()
+            while toggleDesyncLoop and DesyncSystemEnabled do
+                enableDesync()
+                task.wait(0.15)
+                disableDesync()
+                task.wait(0.15)
+            end
+            desyncLoopThread = nil
+        end)
+    end
+
+    localPlayer.CharacterAdded:Connect(function(character)
+        toggleDesyncLoop = false
+        disableDesync()
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+        if C_Desync.Enabled and DesyncSystemEnabled and character and character:FindFirstChild("HumanoidRootPart") and humanoid and humanoid.Health > 0 then
+            local hrp = character.HumanoidRootPart
+            C_Desync.OldPosition = hrp.CFrame
+
+            if not dummyPart then
+                dummyPart = Instance.new("Part")
+                dummyPart.Anchored = true
+                dummyPart.Transparency = 1
+                dummyPart.CanCollide = false
+                dummyPart.Name = "DesyncDummy"
+                dummyPart.Parent = Workspace
+                originalCameraSubject = Workspace.CurrentCamera.CameraSubject
+                Workspace.CurrentCamera.CameraSubject = dummyPart
+            end
+
+            dummyPart.CFrame = C_Desync.OldPosition * CFrame.new(0, 1.5, 0)
+            local calculatedPosition = C_Desync.OldPosition * CFrame.new(-9e9, -9e9, -9e9)
+
+            hrp.CFrame = calculatedPosition
+            RunService.RenderStepped:Wait()
+            hrp.CFrame = C_Desync.OldPosition
+        elseif humanoid and humanoid.Health <= 0 and C_Desync.Enabled then
+            disableDesync()
+        end
+    end)
+
+    local DesyncFrame = Instance.new("Frame")
+    DesyncFrame.Size = UDim2.new(1, -20, 0, 32)
+    DesyncFrame.Position = UDim2.new(0, 10, 0, 360)
+    DesyncFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    DesyncFrame.Parent = MainFrame
+    Instance.new("UICorner", DesyncFrame).CornerRadius = UDim.new(0, 8)
+
+    local DesyncLabel = Instance.new("TextLabel")
+    DesyncLabel.Text = "مضاد بانج"
+    DesyncLabel.Size = UDim2.new(0, 105, 1, 0)
+    DesyncLabel.Position = UDim2.new(0, 10, 0, 0)
+    DesyncLabel.BackgroundTransparency = 1
+    DesyncLabel.TextColor3 = Color3.new(1, 1, 1)
+    DesyncLabel.Font = Enum.Font.SourceSans
+    DesyncLabel.TextSize = 12
+    DesyncLabel.TextXAlignment = Enum.TextXAlignment.Right
+    DesyncLabel.Parent = DesyncFrame
+
+    local DesyncBtn = Instance.new("TextButton")
+    DesyncBtn.Text = "OFF"
+    DesyncBtn.Size = UDim2.new(0, 50, 0, 24)
+    DesyncBtn.Position = UDim2.new(1, -60, 0.5, -12)
+    DesyncBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    DesyncBtn.TextColor3 = Color3.new(1, 1, 1)
+    DesyncBtn.Font = Enum.Font.SourceSansBold
+    DesyncBtn.TextSize = 12
+    Instance.new("UICorner", DesyncBtn).CornerRadius = UDim.new(0, 6)
+    DesyncBtn.Parent = DesyncFrame
+
+    -- ====== وظائف مضاد النسخ العادي ======
+    local function DelayedRE(reason)
+        if IsResetting or not AntiCopyEnabled then return end
+        IsResetting = true
+        sendHDCommand("char me 1")
+        task.wait(0.8)
+        sendHDCommand("unchar")
+        task.wait(0.5)
+        IsResetting = false
+    end
+
+    local function monitorCharacterAntiCopy(character)
+        if not character or not AntiCopyEnabled then return end
+        CharacterTime = os.clock()
+        local humanoid = character:WaitForChild("Humanoid", 2)
+
+        if humanoid and AntiCopyConfig.AntiCopyAndSize then
+            for _, v in pairs(humanoid:GetChildren()) do
+                if v:IsA("NumberValue") and string.find(v.Name:lower(), "scale") then
+                    v.Changed:Connect(function()
+                        if AntiCopyEnabled and not IsResetting and (os.clock() - CharacterTime > 0.5) then
+                            DelayedRE("تغيير حجم")
+                        end
+                    end)
+                end
+            end
+        end
+
+        character.ChildAdded:Connect(function(obj)
+            if not AntiCopyEnabled or IsResetting then return end
+            if (os.clock() - CharacterTime < 0.3) then return end
+            if not obj or not obj.Parent then return end
+            if WHITELISTED_CLASSES[obj.ClassName] or obj:IsA("Accessory") or obj:FindFirstAncestorOfClass("Tool") then return end
+
+            local name = obj.Name
+            local lowerName = name:lower()
+            if string.find(lowerName, "head") or string.find(lowerName, "torso") or string.find(lowerName, "leg") or
+               string.find(lowerName, "arm") or string.find(lowerName, "root") or string.find(lowerName, "hd") or
+               string.find(lowerName, "mesh") or string.find(lowerName, "weld") then return end
+
+            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+                DelayedRE("بكج نسخ")
+            end
+        end)
+    end
+
+    -- ====== وظائف مضاد الرقص المجاني ======
+    local function autoStopDances()
+        if not FreeAntiDanceEnabled then return end
+        local currentTime = os.clock()
+        if currentTime - danceStopperCooldown < 0 then return end
+        danceStopperCooldown = currentTime
+
+        local character = localPlayer.Character
+        if not character then return end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        local animator = humanoid:FindFirstChild("Animator")
+        if not animator then return end
+
+        local animationTracks = animator:GetPlayingAnimationTracks()
+        for _, track in pairs(animationTracks) do
+            if track and track.Animation then
+                local animName = track.Animation.Name
+                local lowerName = animName:lower()
+                local isDance = false
+
+                if string.match(lowerName, "^hd%-%d+$") then
+                    local numbers = string.match(lowerName, "%d+")
+                    if numbers and #numbers >= 10 then isDance = true end
+                end
+
+                if not isDance then
+                    local danceKeywords = {"dance", "رقص", "الرقص", "dancing", "move", "حركة", "moves", "animation"}
+                    for _, keyword in ipairs(danceKeywords) do
+                        if string.find(lowerName, keyword) then isDance = true break end
+                    end
+                end
+
+                if isDance then
+                    local ignored = false
+                    for itemName, _ in pairs(IGNORED_ITEMS_FREE) do
+                        if animName == itemName then ignored = true break end
+                    end
+                    if not ignored then track:Stop() end
+                end
+            end
+        end
+    end
+
+    local function startDanceStopper()
+        if danceStopperRunning then return end
+        danceStopperRunning = true
+        task.spawn(function()
+            while FreeAntiDanceEnabled do
+                autoStopDances()
+                task.wait(0.3)
+            end
+            danceStopperRunning = false
+        end)
+    end
+
+    -- ====== وظائف مضاد الرقص (undog) ======
+    local function isDanceAnimation(item)
+        if not item:IsA("Animation") then return false end
+        if IGNORED_ITEMS_DANCE[item.Name] then return false end
+        if string.match(item.Name, "^HD%-%d+$") then
+            local numbers = string.match(item.Name, "%d+")
+            if numbers and #numbers >= 10 then return true end
+        end
+        local lowerName = item.Name:lower()
+        local danceKeywords = {"dance", "رقص", "الرقص", "dancing", "move", "حركة", "moves", "animation"}
+        for _, keyword in ipairs(danceKeywords) do
+            if string.find(lowerName, keyword) then return true end
+        end
+        return false
+    end
+
+    local function executeUndog()
+        if not AntiDanceEnabled then return end
+        local currentTime = os.clock()
+        if currentTime - lastUndogTime > COOLDOWN then
+            lastUndogTime = currentTime
+            pcall(function() sendHDCommand("undog") end)
+        end
+    end
+
+    local function scanExistingAnimations()
+        if not AntiDanceEnabled or not localPlayer.Character then return end
+        for _, desc in pairs(localPlayer.Character:GetDescendants()) do
+            if desc:IsA("Animation") and isDanceAnimation(desc) then
+                executeUndog()
+                break
+            end
+        end
+    end
+
+    local function monitorCharacterAntiDance(character)
+        if not character then return end
+        character.DescendantAdded:Connect(function(desc)
+            if not AntiDanceEnabled then return end
+            if desc:IsA("Tool") or desc:FindFirstAncestorOfClass("Tool") then return end
+            if desc:IsA("Animation") then
+                task.wait(0)
+                if isDanceAnimation(desc) then executeUndog() return end
+            end
+            if desc:IsA("AnimationTrack") and desc.Animation then
+                if isDanceAnimation(desc.Animation) then executeUndog() return end
+            end
+        end)
+    end
+
+    -- ====== وظائف مضاد الفلينج ======
+    local function getValidTarget()
+        local list = {}
+        local usedNames = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= localPlayer then
+                local name = p.Name
+                local lowerName = name:lower()
+                local isDuplicate = false
+                if usedNames[lowerName] then isDuplicate = true
+                else
+                    for existingName, _ in pairs(usedNames) do
+                        local matchCount = 0
+                        for i = 1, math.min(#lowerName, #existingName) do
+                            if lowerName:sub(i,i) == existingName:sub(i,i) then matchCount = matchCount + 1 end
+                        end
+                        if matchCount >= 3 then isDuplicate = true break end
+                    end
+                end
+                if not isDuplicate then table.insert(list, name) usedNames[lowerName] = true end
+            end
+        end
+        if #list == 0 then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= localPlayer then table.insert(list, p.Name) end
+            end
+        end
+        return (#list > 0) and list[math.random(1, #list)] or nil
+    end
+
+    -- ====== وظائف مضاد كلبش الأدمن ======
+    local function detectAdminCuff()
+        if not AntiCuffEnabled then return false end
+        local character = localPlayer.Character
+        if not character then return false end
+        for _, child in pairs(character:GetChildren()) do
+            local childName = child.Name:lower()
+            for _, keyword in ipairs(ADMIN_CUFF_KEYWORDS) do
+                if childName == keyword or (child:IsA("Tool") and string.find(childName, keyword)) then return true end
+            end
+        end
+        return false
+    end
+
+    -- ====== وظائف مضاد نسخ الأدمن ======
+    local function DelayedREAdmin(reason)
+        if IsResettingAdmin or not AntiCopyAdminEnabled then return end
+        IsResettingAdmin = true
+        pcall(function()
+            local root = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if root then root.Anchored = true end
+        end)
+        task.wait(ConfigAdmin.WaitTime)
+        sendRECommand()
+        task.wait(1)
+        IsResettingAdmin = false
+    end
+
+    local function monitorCharacterAntiCopyAdmin(character)
+        if not character or not AntiCopyAdminEnabled then return end
+        CharacterTimeAdmin = os.clock()
+        local humanoid = character:WaitForChild("Humanoid")
+        for _, v in pairs(humanoid:GetChildren()) do
+            if v:IsA("NumberValue") and string.find(v.Name, "Scale") then
+                v.Changed:Connect(function()
+                    if ConfigAdmin.AntiCopyAndSize and not IsResettingAdmin and (os.clock() - CharacterTimeAdmin > 0.5) then
+                        DelayedREAdmin("تغيير حجم")
+                    end
+                end)
+            end
+        end
+        character.ChildAdded:Connect(function(obj)
+            if not ConfigAdmin.AntiCopyAndSize or IsResettingAdmin then return end
+            if (os.clock() - CharacterTimeAdmin < 0.3) then return end
+            if not obj or not obj.Parent then return end
+            if WHITELISTED_CLASSES_ADMIN[obj.ClassName] or obj:IsA("Accessory") or obj:FindFirstAncestorOfClass("Tool") then return end
+            local name = obj.Name
+            if string.find(name, "Head") or string.find(name, "Torso") or string.find(name, "Leg") or
+               string.find(name, "Arm") or string.find(name, "Root") or string.find(name, "HD") then return end
+            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then DelayedREAdmin("بكج نسخ") end
+        end)
+    end
+
+    -- ====== وظائف مضاد الكلبش الخاص ======
+    local function handleToolAction(active)
+        local character = localPlayer.Character
+        if not character then return end
+        local tool = character:FindFirstChild(TOOL_NAME) or localPlayer.Backpack:FindFirstChild(TOOL_NAME)
+        if tool and tool:IsA("Tool") then
+            if active then
+                tool.Parent = character
+                tool.Grip = CFrame.new(Vector3.new(1.5, 5, -0.5)) * CFrame.Angles(math.rad(90), 0, 0)
+            else
+                tool.Grip = CFrame.new(0, 0, 0)
+            end
+        end
+    end
+
+    local function detectAdminCuffSpecial()
+        local character = localPlayer.Character
+        if not character then return false end
+        for _, child in pairs(character:GetChildren()) do
+            local childName = child.Name:lower()
+            for _, keyword in ipairs(ADMIN_CUFF_KEYWORDS) do
+                if string.find(childName, keyword) then return true end
+            end
+        end
+        return false
+    end
+
+    -- ====== وظائف مضاد الكلبش العادي ======
+    local function antiCuffSystemNormal()
+        if not AntiCuffNormalEnabled then return end
+        local character = localPlayer.Character
+        if not character then return end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if humanoid and root then
+            humanoid.Sit = true
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+            if humanoid.MoveDirection.Magnitude > 0 then
+                local moveDir = humanoid.MoveDirection
+                root.Velocity = Vector3.new(moveDir.X * 16, root.Velocity.Y, moveDir.Z * 16)
+            end
+            local hasCuff = false
+            for _, v in pairs(character:GetChildren()) do
+                if v:IsA("Tool") and (string.find(v.Name:lower(), "cuff") or v.Name == "Handcuffs") then
+                    hasCuff = true break
+                end
+            end
+            if hasCuff then
+                for i = 1, 10 do
+                    humanoid.Sit = false
+                    task.wait(0.05)
+                    humanoid.Sit = true
+                    task.wait(0.05)
+                end
+                if humanoid.MoveDirection.Magnitude > 0 then
+                    local moveDir = humanoid.MoveDirection
+                    root.Velocity = Vector3.new(moveDir.X * 50, 10, moveDir.Z * 50)
+                end
+            end
+        end
+    end
+
+    -- ====== ربط الأزرار ======
+    MinusBtn.MouseButton1Click:Connect(function()
+        if MainFrame.Size == UDim2.new(0, 200, 0, 430) then
+            MainFrame.Size = UDim2.new(0, 200, 0, 40)
+            MinusBtn.Text = "+"
+            Title.Visible = false
+            for _, child in pairs(MainFrame:GetChildren()) do
+                if child:IsA("Frame") and child ~= TitleFrame then child.Visible = false end
+            end
+        else
+            MainFrame.Size = UDim2.new(0, 200, 0, 430)
+            MinusBtn.Text = "−"
+            Title.Visible = true
+            for _, child in pairs(MainFrame:GetChildren()) do
+                if child:IsA("Frame") and child ~= TitleFrame then child.Visible = true end
+            end
+        end
+    end)
+
+    AntiCopyBtn.MouseButton1Click:Connect(function()
+        AntiCopyEnabled = not AntiCopyEnabled
+        if AntiCopyEnabled then
+            AntiCopyBtn.Text = "ON"
+            AntiCopyBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+            if localPlayer.Character then monitorCharacterAntiCopy(localPlayer.Character) end
+        else
+            AntiCopyBtn.Text = "OFF"
+            AntiCopyBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    FreeDanceBtn.MouseButton1Click:Connect(function()
+        FreeAntiDanceEnabled = not FreeAntiDanceEnabled
+        if FreeAntiDanceEnabled then
+            FreeDanceBtn.Text = "ON"
+            FreeDanceBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+            startDanceStopper()
+        else
+            FreeDanceBtn.Text = "OFF"
+            FreeDanceBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    AntiDanceBtn.MouseButton1Click:Connect(function()
+        AntiDanceEnabled = not AntiDanceEnabled
+        if AntiDanceEnabled then
+            AntiDanceBtn.Text = "ON"
+            AntiDanceBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+            if localPlayer.Character then
+                monitorCharacterAntiDance(localPlayer.Character)
+                task.wait(1)
+                scanExistingAnimations()
+            end
+        else
+            AntiDanceBtn.Text = "OFF"
+            AntiDanceBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    AntiFlyBtn.MouseButton1Click:Connect(function()
+        SystemEnabled = not SystemEnabled
+        if SystemEnabled then
+            AntiFlyBtn.Text = "ON"
+            AntiFlyBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+        else
+            AntiFlyBtn.Text = "OFF"
+            AntiFlyBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    AntiCuffBtn.MouseButton1Click:Connect(function()
+        AntiCuffEnabled = not AntiCuffEnabled
+        if AntiCuffEnabled then
+            AntiCuffBtn.Text = "ON"
+            AntiCuffBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+        else
+            AntiCuffBtn.Text = "OFF"
+            AntiCuffBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    AntiCopyAdminBtn.MouseButton1Click:Connect(function()
+        AntiCopyAdminEnabled = not AntiCopyAdminEnabled
+        if AntiCopyAdminEnabled then
+            AntiCopyAdminBtn.Text = "ON"
+            AntiCopyAdminBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+            if localPlayer.Character then monitorCharacterAntiCopyAdmin(localPlayer.Character) end
+        else
+            AntiCopyAdminBtn.Text = "OFF"
+            AntiCopyAdminBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+        end
+    end)
+
+    AntiCuffSpecialBtn.MouseButton1Click:Connect(function()
+        AntiCuffSpecialEnabled = not AntiCuffSpecialEnabled
+        getgenv().AntiCuff.Desync = AntiCuffSpecialEnabled
+        if AntiCuffSpecialEnabled then
+            AntiCuffSpecialBtn.Text = "ON"
+            AntiCuffSpecialBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+        else
+            AntiCuffSpecialBtn.Text = "OFF"
+            AntiCuffSpecialBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+            handleToolAction(false)
+            isCuffedSpecial = false
+        end
+    end)
+
+    AntiCuffNormalBtn.MouseButton1Click:Connect(function()
+        AntiCuffNormalEnabled = not AntiCuffNormalEnabled
+        if AntiCuffNormalEnabled then
+            AntiCuffNormalBtn.Text = "ON"
+            AntiCuffNormalBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+        else
+            AntiCuffNormalBtn.Text = "OFF"
+            AntiCuffNormalBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+            if localPlayer.Character then
+                local hum = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Sit = false hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true) end
+            end
+        end
+    end)
+
+    DesyncBtn.MouseButton1Click:Connect(function()
+        DesyncSystemEnabled = not DesyncSystemEnabled
+        if DesyncSystemEnabled then
+            DesyncBtn.Text = "ON"
+            DesyncBtn.BackgroundColor3 = Color3.fromRGB(39, 174, 96)
+            toggleDesyncLoop = true
+            startDesyncLoop()
+        else
+            DesyncBtn.Text = "OFF"
+            DesyncBtn.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+            toggleDesyncLoop = false
+            disableDesync()
+        end
+    end)
+
+    -- ====== المراقبات ======
+    localPlayer.CharacterAdded:Connect(function(character)
+        if AntiCopyEnabled then monitorCharacterAntiCopy(character) end
+        if AntiDanceEnabled then
+            monitorCharacterAntiDance(character)
+            task.wait(1)
+            scanExistingAnimations()
+        end
+        if AntiCopyAdminEnabled then monitorCharacterAntiCopyAdmin(character) end
+    end)
+
+    RunService.Heartbeat:Connect(function(dt)
+        if not SystemEnabled then missingTime = 0 return end
+        local char = localPlayer.Character
+        local isMissing = (char == nil) or (char.Parent == nil) or (not char:FindFirstChild("HumanoidRootPart"))
+        if isMissing then
+            missingTime = missingTime + dt
+            if missingTime >= 0.5 and not isProtectorActive then
+                isProtectorActive = true
+                task.spawn(function()
+                    local target = getValidTarget()
+                    if target then
+                        sendHDCommand("to " .. target)
+                        local characterFound = false
+                        local timeout = 5
+                        local startWait = tick()
+                        while not characterFound and (tick() - startWait) < timeout and SystemEnabled do
+                            local newChar = localPlayer.Character
+                            if newChar and newChar:FindFirstChild("HumanoidRootPart") and newChar.Parent ~= nil then
+                                task.wait(0.1)
+                                newChar.HumanoidRootPart.CFrame = CFrame.new(SafeLocation)
+                                characterFound = true
+                            end
+                            task.wait(0.1)
+                        end
+                    end
+                    isProtectorActive = false
+                    missingTime = 0
+                end)
+            end
+        else
+            missingTime = 0
+        end
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        if not AntiCuffEnabled then return end
+        if detectAdminCuff() then
+            local currentTime = os.clock()
+            if currentTime - lastReTime >= RE_COOLDOWN then
+                lastReTime = currentTime
+                sendHDCommand("re")
+            end
+        end
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        if not AntiCuffSpecialEnabled then return end
+        local currentlyCuffed = detectAdminCuffSpecial()
+        if currentlyCuffed and not isCuffedSpecial then
+            isCuffedSpecial = true
+            handleToolAction(true)
+        elseif not currentlyCuffed and isCuffedSpecial then
+            isCuffedSpecial = false
+            handleToolAction(false)
+        end
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        if getgenv().AntiCuff.Desync == true and AntiCuffSpecialEnabled then
+            local character = localPlayer.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local abc = character.HumanoidRootPart.Velocity
+                character.HumanoidRootPart.Velocity = (getgenv().AntiCuff.Direction or Vector3.new(0,0,-1)) * (2^50)
+                RunService.RenderStepped:Wait()
+                character.HumanoidRootPart.Velocity = abc
+            end
+        end
+    end)
+
+    RunService.Heartbeat:Connect(function()
+        antiCuffSystemNormal()
+    end)
+
+    StarterGui:SetCore("SendNotification", {
+        Title = "🛡️ الحماية",
+        Text = "تم تحميل نظام الحماية المتكامل (9 أنظمة)",
+        Duration = 3
+    })
+end
+
+LoadProtectionScript()
