@@ -1,546 +1,602 @@
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local playerName = LocalPlayer.Name
 
+-- ═══════════════════════════════════════════════════════════════════
+-- 🔒 فحص الصلاحية - يمنع التشغيل بدون رتبة
+-- ═══════════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local playerName = Players.LocalPlayer.Name
 local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
 local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
 
-local function CheckPermission(permName)
-    local function tryUrl(base)
-        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
-        local success, response = pcall(function()
-            return game:HttpGet(fullUrl)
-        end)
-        if not success then return nil end
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(response)
-        end)
-        if not ok or type(data) ~= "table" then return nil end
-        local perms = data.permissions or data
-        return perms[permName] == true
-    end
-    local result = tryUrl(API_BASE)
-    if result == nil then result = tryUrl(API_BACKUP) end
-    return result == true
+local function CheckSingleAPI(url)
+    local fullUrl = url .. "/check?username=" .. HttpService:UrlEncode(playerName)
+    local success, response = pcall(function()
+        return game:HttpGet(fullUrl)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not ok or type(data) ~= "table" then return nil end
+    return data.permissions or data
 end
 
-if not CheckPermission("friendprotection") then
-    return
+local function HasPermission()
+    local data = CheckSingleAPI(API_BASE)
+    if not data then data = CheckSingleAPI(API_BACKUP) end
+    if not data then return false end
+    return data["friendprotection"] == true
 end
 
-local function LoadFriendProtectionScript()
-    local localPlayer = Players.LocalPlayer
-
-    -- ====== متغيرات الأنظمة الأربعة ======
-    local Systems = {
-        AntiCuff = { Active = false, Target = nil, LastReTime = 0, Cooldown = 1 },
-        AntiCopyFree = { Active = false, Target = nil, IsResetting = false, CharacterTime = 0 },
-        AntiCopyAdmin = { Active = false, Target = nil, IsResetting = false, LastReTime = 0, Cooldown = 1 },
-        AntiDance = { Active = false, Target = nil, LastExecTime = 0, Cooldown = 0 }
-    }
-
-    -- ====== البيانات الثابتة ======
-    local IGNORED_ITEMS = {
-        ["HDAdminStarterCharacter"] = true, ["HDAdminFlyForce"] = true, ["HDAdminFlyGyro"] = true,
-        ["AnimationTrack"] = true, ["Animation1"] = true, ["Animation2"] = true, ["Animation3"] = true,
-        ["Animation4"] = true, ["Animation5"] = true, ["Animation6"] = true, ["Animation7"] = true, ["Animation8"] = true
-    }
-
-    local ALLOWED_ITEMS = {
-        ["Accessory"] = true, ["Shirt"] = true, ["Pants"] = true, ["BodyColors"] = true,
-        ["ShirtGraphic"] = true, ["Tool"] = true, ["Humanoid"] = true, ["NumberValue"] = true,
-        ["Folder"] = true, ["BillboardGui"] = true, ["SurfaceGui"] = true, ["Decal"] = true
-    }
-
-    local CUFF_KEYWORDS = {
-        "incuffingsession", "incuff", "cuffingsession", "admincuff", "handcufftool",
-        "arresttool", "restraint", "restrained", "handcuffs", "cuff"
-    }
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- بناء الواجهة المُصغّرة
-    -- ═══════════════════════════════════════════════════════════════════
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "FriendProtectionSystem"
-    ScreenGui.Parent = CoreGui
-    ScreenGui.ResetOnSpawn = false
-
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 220, 0, 290)
-    MainFrame.Position = UDim2.new(0.5, -110, 0.3, 0)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
-    MainFrame.BackgroundTransparency = 0.05
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-    MainFrame.ClipsDescendants = true
-    MainFrame.Parent = ScreenGui
-
-    local MainCorner = Instance.new("UICorner", MainFrame)
-    MainCorner.CornerRadius = UDim.new(0, 12)
-
-    local MainStroke = Instance.new("UIStroke", MainFrame)
-    MainStroke.Color = Color3.fromRGB(0, 170, 255)
-    MainStroke.Thickness = 1.2
-    MainStroke.Transparency = 0.3
-
-    local MainGradient = Instance.new("UIGradient", MainFrame)
-    MainGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 14, 22)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 32)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 22))
+if not HasPermission() then
+    StarterGui:SetCore("SendNotification", {
+        Title = "🔒 مقفل",
+        Text = "ليس لديك صلاحية لهذا السكربت",
+        Duration = 3
     })
-    MainGradient.Rotation = 45
+    return -- ⛔ يوقف السكربت بالكامل
+end
+-- ═══════════════════════════════════════════════════════════════════
 
-    -- ====== شريط العنوان ======
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Name = "TitleBar"
-    TitleBar.Size = UDim2.new(1, 0, 0, 34)
-    TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-    TitleBar.BackgroundTransparency = 0.1
-    TitleBar.BorderSizePixel = 0
-    TitleBar.Parent = MainFrame
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
 
-    local TitleCorner = Instance.new("UICorner", TitleBar)
-    TitleCorner.CornerRadius = UDim.new(0, 12)
+local localPlayer = Players.LocalPlayer
 
-    local TitleGradient = Instance.new("UIGradient", TitleBar)
-    TitleGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 50)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 35))
-    })
-    TitleGradient.Rotation = 90
-
-    local TitleIcon = Instance.new("TextLabel")
-    TitleIcon.Text = "🛡️"
-    TitleIcon.Size = UDim2.new(0, 24, 0, 24)
-    TitleIcon.Position = UDim2.new(0, 10, 0.5, -12)
-    TitleIcon.BackgroundTransparency = 1
-    TitleIcon.TextSize = 16
-    TitleIcon.Parent = TitleBar
-
-    local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Text = "حماية الصديق"
-    TitleLabel.Size = UDim2.new(1, -70, 0, 18)
-    TitleLabel.Position = UDim2.new(0, 36, 0.5, -9)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
-    TitleLabel.Font = Enum.Font.GothamBold
-    TitleLabel.TextSize = 13
-    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TitleLabel.Parent = TitleBar
-
-    -- زر التصغير فقط
-    local MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Name = "MinimizeBtn"
-    MinimizeBtn.Text = "−"
-    MinimizeBtn.Size = UDim2.new(0, 26, 0, 26)
-    MinimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
-    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-    MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-    MinimizeBtn.Font = Enum.Font.GothamBold
-    MinimizeBtn.TextSize = 15
-    MinimizeBtn.AutoButtonColor = false
-    MinimizeBtn.Parent = TitleBar
-    Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 7)
-
-    -- ====== حقل إدخال اسم اللاعب ======
-    local InputFrame = Instance.new("Frame")
-    InputFrame.Name = "InputFrame"
-    InputFrame.Size = UDim2.new(1, -16, 0, 32)
-    InputFrame.Position = UDim2.new(0, 8, 0, 42)
-    InputFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
-    InputFrame.BackgroundTransparency = 0.2
-    InputFrame.BorderSizePixel = 0
-    InputFrame.Parent = MainFrame
-    Instance.new("UICorner", InputFrame).CornerRadius = UDim.new(0, 8)
-
-    local InputStroke = Instance.new("UIStroke", InputFrame)
-    InputStroke.Color = Color3.fromRGB(60, 60, 90)
-    InputStroke.Thickness = 1
-    InputStroke.Transparency = 0.4
-
-    local PlayerNameBox = Instance.new("TextBox")
-    PlayerNameBox.Name = "PlayerNameBox"
-    PlayerNameBox.Size = UDim2.new(0.92, 0, 0, 28)
-    PlayerNameBox.Position = UDim2.new(0.04, 0, 0.5, -14)
-    PlayerNameBox.BackgroundTransparency = 1
-    PlayerNameBox.TextColor3 = Color3.new(1, 1, 1)
-    PlayerNameBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 150)
-    PlayerNameBox.PlaceholderText = "اسم اللاعب..."
-    PlayerNameBox.Font = Enum.Font.Gotham
-    PlayerNameBox.TextSize = 12
-    PlayerNameBox.Text = ""
-    PlayerNameBox.TextXAlignment = Enum.TextXAlignment.Center
-    PlayerNameBox.Parent = InputFrame
-
-    -- ====== دالة إنشاء زر نظام ======
-    local function createSystemButton(yPos, icon, text, accentColor)
-        local frame = Instance.new("Frame")
-        frame.Name = text .. "Frame"
-        frame.Size = UDim2.new(1, -16, 0, 36)
-        frame.Position = UDim2.new(0, 8, 0, yPos)
-        frame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
-        frame.BackgroundTransparency = 0.15
-        frame.BorderSizePixel = 0
-        frame.Parent = MainFrame
-        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-        local fStroke = Instance.new("UIStroke", frame)
-        fStroke.Color = Color3.fromRGB(50, 50, 70)
-        fStroke.Thickness = 1
-        fStroke.Transparency = 0.5
-
-        local iconLabel = Instance.new("TextLabel")
-        iconLabel.Text = icon
-        iconLabel.Size = UDim2.new(0, 22, 0, 22)
-        iconLabel.Position = UDim2.new(0, 8, 0.5, -11)
-        iconLabel.BackgroundTransparency = 1
-        iconLabel.TextSize = 14
-        iconLabel.Parent = frame
-
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.Text = text
-        nameLabel.Size = UDim2.new(0, 90, 1, 0)
-        nameLabel.Position = UDim2.new(0, 34, 0, 0)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextSize = 11
-        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-        nameLabel.Parent = frame
-
-        local btn = Instance.new("TextButton")
-        btn.Name = "ToggleBtn"
-        btn.Text = "○ إيقاف"
-        btn.Size = UDim2.new(0, 70, 0, 26)
-        btn.Position = UDim2.new(1, -78, 0.5, -13)
-        btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-        btn.TextColor3 = Color3.fromRGB(180, 180, 200)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.AutoButtonColor = false
-        btn.Parent = frame
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
-
-        local btnStroke = Instance.new("UIStroke", btn)
-        btnStroke.Color = Color3.fromRGB(70, 70, 90)
-        btnStroke.Thickness = 1
-        btnStroke.Transparency = 0.4
-
-        btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(55, 55, 75)}):Play()
-        end)
-        btn.MouseLeave:Connect(function()
-            if not Systems[systemKey] or not Systems[systemKey].Active then
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 60)}):Play()
-            end
-        end)
-
-        return {Frame = frame, Btn = btn, Label = nameLabel, Icon = iconLabel, Accent = accentColor}
-    end
-
-    -- إنشاء الأزرار الأربعة بأسماء عربية
-    local Btns = {
-        AntiCuff = createSystemButton(80, "🔒", "مضاد الكلبشة", Color3.fromRGB(255, 100, 100)),
-        AntiCopyFree = createSystemButton(122, "🛡️", "مضاد النسخ المجاني", Color3.fromRGB(100, 255, 150)),
-        AntiCopyAdmin = createSystemButton(164, "👑", "مضاد النسخ الأدمن", Color3.fromRGB(100, 200, 255)),
-        AntiDance = createSystemButton(206, "🎭", "مضاد الرقص", Color3.fromRGB(255, 200, 50)),
-    }
-
-    -- ====== وظائف مساعدة ======
-    local function IsCuffed(player)
-        if not player or not player.Character then return false end
-        for _, child in pairs(player.Character:GetChildren()) do
-            local name = child.Name:lower()
-            for _, kw in ipairs(CUFF_KEYWORDS) do
-                if name == kw or (child:IsA("Tool") and name:find(kw)) then
-                    return true
+-- ═══════════════════════════════════════════════════════════════════
+-- دوال مساعدة مشتركة
+-- ═══════════════════════════════════════════════════════════════════
+local function sendHDCommand(cmd)
+    task.spawn(function()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local hdSignals = ReplicatedStorage:FindFirstChild("HDAdminHDClient")
+        if hdSignals then
+            hdSignals = hdSignals:FindFirstChild("Signals")
+        end
+        local remote = hdSignals and hdSignals:FindFirstChild("RequestCommandSilent")
+        if remote then
+            remote:InvokeServer("." .. cmd)
+        else
+            local chatEvent = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+            if chatEvent then
+                chatEvent = chatEvent:FindFirstChild("SayMessageRequest")
+                if chatEvent then
+                    chatEvent:FireServer("." .. cmd, "All")
                 end
             end
         end
-        return false
-    end
+    end)
+end
 
-    local function AntiCuff_Execute()
-        local target = Systems.AntiCuff.Target
-        if not target or not Systems.AntiCuff.Active then return end
-        local now = os.clock()
-        if now - Systems.AntiCuff.LastReTime < Systems.AntiCuff.Cooldown then return end
-        Systems.AntiCuff.LastReTime = now
-
-        StarterGui:SetCore("SendNotification", {Title = "🔒 مضاد الكلبشة", Text = ".re " .. target.Name, Duration = 1})
-        sendHDCommand("re " .. target.Name)
-    end
-
-    -- ====== نظام مضاد نسخ مجاني ======
-    local function AntiCopyFree_Execute()
-        local target = Systems.AntiCopyFree.Target
-        if Systems.AntiCopyFree.IsResetting or not target or not Systems.AntiCopyFree.Active then return end
-        Systems.AntiCopyFree.IsResetting = true
-
-        StarterGui:SetCore("SendNotification", {Title = "🛡️ مضاد النسخ المجاني", Text = "تطهير " .. target.Name, Duration = 1})
-        sendHDCommand("char " .. target.Name .. " 1")
-        task.wait(1)
-        sendHDCommand("unchar " .. target.Name)
-
-        task.wait(0.5)
-        Systems.AntiCopyFree.IsResetting = false
-    end
-
-    local function AntiCopyFree_Monitor(character)
-        if not character or not Systems.AntiCopyFree.Active then return end
-        local charTime = os.clock()
-
-        character.ChildAdded:Connect(function(obj)
-            if not Systems.AntiCopyFree.Active or Systems.AntiCopyFree.IsResetting then return end
-            if (os.clock() - charTime < 0.3) then return end
-            if ALLOWED_ITEMS[obj.ClassName] or obj:IsA("Accessory") then return end
-
-            local name = obj.Name:lower()
-            if name:match("head") or name:match("torso") or name:match("leg") or name:match("arm") then return end
-
-            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
-                AntiCopyFree_Execute()
+local function FindPlayer(shortName)
+    if not shortName or shortName == "" then return nil end
+    shortName = shortName:lower()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlayer then
+            if p.Name:lower():sub(1, #shortName) == shortName or 
+               p.DisplayName:lower():sub(1, #shortName) == shortName then
+                return p
             end
-        end)
-    end
-
-    -- ====== نظام مضاد نسخ أدمن ======
-    local function AntiCopyAdmin_Execute()
-        local target = Systems.AntiCopyAdmin.Target
-        if Systems.AntiCopyAdmin.IsResetting or not target or not Systems.AntiCopyAdmin.Active then return end
-
-        local now = os.clock()
-        if now - Systems.AntiCopyAdmin.LastReTime < Systems.AntiCopyAdmin.Cooldown then return end
-        Systems.AntiCopyAdmin.LastReTime = now
-        Systems.AntiCopyAdmin.IsResetting = true
-
-        StarterGui:SetCore("SendNotification", {Title = "👑 مضاد النسخ الأدمن", Text = ".re " .. target.Name, Duration = 1})
-
-        pcall(function()
-            if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                target.Character.HumanoidRootPart.Anchored = true
-            end
-        end)
-
-        task.wait(0.2)
-        sendHDCommand("re " .. target.Name)
-
-        task.wait(1)
-        Systems.AntiCopyAdmin.IsResetting = false
-
-        pcall(function()
-            if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                target.Character.HumanoidRootPart.Anchored = false
-            end
-        end)
-    end
-
-    local function AntiCopyAdmin_Monitor(character)
-        if not character or not Systems.AntiCopyAdmin.Active then return end
-        local charTime = os.clock()
-
-        character.ChildAdded:Connect(function(obj)
-            if not Systems.AntiCopyAdmin.Active or Systems.AntiCopyAdmin.IsResetting then return end
-            if (os.clock() - charTime < 0.3) then return end
-            if ALLOWED_ITEMS[obj.ClassName] or obj:IsA("Accessory") then return end
-
-            local name = obj.Name:lower()
-            if name:match("head") or name:match("torso") or name:match("leg") or name:match("arm") or
-               name:match("root") or name:match("hd") then return end
-
-            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
-                AntiCopyAdmin_Execute()
-            end
-        end)
-    end
-
-    -- ====== نظام مضاد رقص أدمن ======
-    local function IsDance(anim)
-        if not anim:IsA("Animation") then return false end
-        if IGNORED_ITEMS[anim.Name] then return false end
-
-        if anim.Name:match("^HD%-%d+$") then
-            local nums = anim.Name:match("%d+")
-            if nums and #nums >= 10 then return true end
         end
+    end
+    return nil
+end
 
-        local lower = anim.Name:lower()
-        local words = {"dance", "رقص", "dancing", "move", "حركة", "animation"}
-        for _, w in ipairs(words) do
-            if lower:find(w) then return true end
+-- ═══════════════════════════════════════════════════════════════════
+-- PART 9: سكربت حماية صديقك (FRIEND PROTECTION) - النسخة المُصغّرة
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ====== متغيرات الأنظمة الأربعة ======
+local Systems = {
+    AntiCuff = { Active = false, Target = nil, LastReTime = 0, Cooldown = 1 },
+    AntiCopyFree = { Active = false, Target = nil, IsResetting = false, CharacterTime = 0 },
+    AntiCopyAdmin = { Active = false, Target = nil, IsResetting = false, LastReTime = 0, Cooldown = 1 },
+    AntiDance = { Active = false, Target = nil, LastExecTime = 0, Cooldown = 0 }
+}
+
+-- ====== البيانات الثابتة ======
+local IGNORED_ITEMS = {
+    ["HDAdminStarterCharacter"] = true, ["HDAdminFlyForce"] = true, ["HDAdminFlyGyro"] = true,
+    ["AnimationTrack"] = true, ["Animation1"] = true, ["Animation2"] = true, ["Animation3"] = true,
+    ["Animation4"] = true, ["Animation5"] = true, ["Animation6"] = true, ["Animation7"] = true, ["Animation8"] = true
+}
+
+local ALLOWED_ITEMS = {
+    ["Accessory"] = true, ["Shirt"] = true, ["Pants"] = true, ["BodyColors"] = true,
+    ["ShirtGraphic"] = true, ["Tool"] = true, ["Humanoid"] = true, ["NumberValue"] = true,
+    ["Folder"] = true, ["BillboardGui"] = true, ["SurfaceGui"] = true, ["Decal"] = true
+}
+
+local CUFF_KEYWORDS = {
+    "incuffingsession", "incuff", "cuffingsession", "admincuff", "handcufftool",
+    "arresttool", "restraint", "restrained", "handcuffs", "cuff"
+}
+
+-- ═══════════════════════════════════════════════════════════════════
+-- بناء الواجهة المُصغّرة
+-- ═══════════════════════════════════════════════════════════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "FriendProtectionSystem"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 220, 0, 290)
+MainFrame.Position = UDim2.new(0.5, -110, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+MainFrame.BackgroundTransparency = 0.05
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 12)
+
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Color3.fromRGB(0, 170, 255)
+MainStroke.Thickness = 1.2
+MainStroke.Transparency = 0.3
+
+local MainGradient = Instance.new("UIGradient", MainFrame)
+MainGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 14, 22)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 32)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 22))
+})
+MainGradient.Rotation = 45
+
+-- ====== شريط العنوان ======
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 34)
+TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+TitleBar.BackgroundTransparency = 0.1
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner", TitleBar)
+TitleCorner.CornerRadius = UDim.new(0, 12)
+
+local TitleGradient = Instance.new("UIGradient", TitleBar)
+TitleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 50)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 35))
+})
+TitleGradient.Rotation = 90
+
+local TitleIcon = Instance.new("TextLabel")
+TitleIcon.Text = "🛡️"
+TitleIcon.Size = UDim2.new(0, 24, 0, 24)
+TitleIcon.Position = UDim2.new(0, 10, 0.5, -12)
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.TextSize = 16
+TitleIcon.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Text = "حماية الصديق"
+TitleLabel.Size = UDim2.new(1, -70, 0, 18)
+TitleLabel.Position = UDim2.new(0, 36, 0.5, -9)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 13
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- زر التصغير فقط
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Name = "MinimizeBtn"
+MinimizeBtn.Text = "−"
+MinimizeBtn.Size = UDim2.new(0, 26, 0, 26)
+MinimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.TextSize = 15
+MinimizeBtn.AutoButtonColor = false
+MinimizeBtn.Parent = TitleBar
+Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 7)
+
+-- ====== حقل إدخال اسم اللاعب ======
+local InputFrame = Instance.new("Frame")
+InputFrame.Name = "InputFrame"
+InputFrame.Size = UDim2.new(1, -16, 0, 32)
+InputFrame.Position = UDim2.new(0, 8, 0, 42)
+InputFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
+InputFrame.BackgroundTransparency = 0.2
+InputFrame.BorderSizePixel = 0
+InputFrame.Parent = MainFrame
+Instance.new("UICorner", InputFrame).CornerRadius = UDim.new(0, 8)
+
+local InputStroke = Instance.new("UIStroke", InputFrame)
+InputStroke.Color = Color3.fromRGB(60, 60, 90)
+InputStroke.Thickness = 1
+InputStroke.Transparency = 0.4
+
+local PlayerNameBox = Instance.new("TextBox")
+PlayerNameBox.Name = "PlayerNameBox"
+PlayerNameBox.Size = UDim2.new(0.92, 0, 0, 28)
+PlayerNameBox.Position = UDim2.new(0.04, 0, 0.5, -14)
+PlayerNameBox.BackgroundTransparency = 1
+PlayerNameBox.TextColor3 = Color3.new(1, 1, 1)
+PlayerNameBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 150)
+PlayerNameBox.PlaceholderText = "اسم اللاعب..."
+PlayerNameBox.Font = Enum.Font.Gotham
+PlayerNameBox.TextSize = 12
+PlayerNameBox.Text = ""
+PlayerNameBox.TextXAlignment = Enum.TextXAlignment.Center
+PlayerNameBox.Parent = InputFrame
+
+-- ====== دالة إنشاء زر نظام ======
+local function createSystemButton(yPos, icon, text, accentColor)
+    local frame = Instance.new("Frame")
+    frame.Name = text .. "Frame"
+    frame.Size = UDim2.new(1, -16, 0, 36)
+    frame.Position = UDim2.new(0, 8, 0, yPos)
+    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+    frame.BackgroundTransparency = 0.15
+    frame.BorderSizePixel = 0
+    frame.Parent = MainFrame
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    local fStroke = Instance.new("UIStroke", frame)
+    fStroke.Color = Color3.fromRGB(50, 50, 70)
+    fStroke.Thickness = 1
+    fStroke.Transparency = 0.5
+
+    local iconLabel = Instance.new("TextLabel")
+    iconLabel.Text = icon
+    iconLabel.Size = UDim2.new(0, 22, 0, 22)
+    iconLabel.Position = UDim2.new(0, 8, 0.5, -11)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.TextSize = 14
+    iconLabel.Parent = frame
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Text = text
+    nameLabel.Size = UDim2.new(0, 90, 1, 0)
+    nameLabel.Position = UDim2.new(0, 34, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 11
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.Parent = frame
+
+    local btn = Instance.new("TextButton")
+    btn.Name = "ToggleBtn"
+    btn.Text = "○ إيقاف"
+    btn.Size = UDim2.new(0, 70, 0, 26)
+    btn.Position = UDim2.new(1, -78, 0.5, -13)
+    btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+    btn.TextColor3 = Color3.fromRGB(180, 180, 200)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.AutoButtonColor = false
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 7)
+
+    local btnStroke = Instance.new("UIStroke", btn)
+    btnStroke.Color = Color3.fromRGB(70, 70, 90)
+    btnStroke.Thickness = 1
+    btnStroke.Transparency = 0.4
+
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(55, 55, 75)}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        if not Systems[systemKey] or not Systems[systemKey].Active then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 60)}):Play()
         end
-        return false
-    end
+    end)
 
-    local function AntiDance_Execute()
-        local target = Systems.AntiDance.Target
-        if not target or not Systems.AntiDance.Active then return end
-        local now = os.clock()
-        if now - Systems.AntiDance.LastExecTime < Systems.AntiDance.Cooldown then return end
-        Systems.AntiDance.LastExecTime = now
-        sendHDCommand("undog " .. target.Name)
-    end
+    return {Frame = frame, Btn = btn, Label = nameLabel, Icon = iconLabel, Accent = accentColor}
+end
 
-    local function AntiDance_Monitor(character)
-        if not character or not Systems.AntiDance.Active then return end
-        character.DescendantAdded:Connect(function(desc)
-            if not Systems.AntiDance.Active then return end
-            if desc:IsA("Tool") then return end
-            if desc:IsA("Animation") and IsDance(desc) then
-                task.wait(0)
-                AntiDance_Execute()
+-- إنشاء الأزرار الأربعة بأسماء عربية
+local Btns = {
+    AntiCuff = createSystemButton(80, "🔒", "مضاد الكلبشة", Color3.fromRGB(255, 100, 100)),
+    AntiCopyFree = createSystemButton(122, "🛡️", "مضاد النسخ المجاني", Color3.fromRGB(100, 255, 150)),
+    AntiCopyAdmin = createSystemButton(164, "👑", "مضاد النسخ الأدمن", Color3.fromRGB(100, 200, 255)),
+    AntiDance = createSystemButton(206, "🎭", "مضاد الرقص", Color3.fromRGB(255, 200, 50)),
+}
+
+-- ====== وظائف مساعدة ======
+local function IsCuffed(player)
+    if not player or not player.Character then return false end
+    for _, child in pairs(player.Character:GetChildren()) do
+        local name = child.Name:lower()
+        for _, kw in ipairs(CUFF_KEYWORDS) do
+            if name == kw or (child:IsA("Tool") and name:find(kw)) then
+                return true
             end
-        end)
+        end
+    end
+    return false
+end
+
+local function AntiCuff_Execute()
+    local target = Systems.AntiCuff.Target
+    if not target or not Systems.AntiCuff.Active then return end
+    local now = os.clock()
+    if now - Systems.AntiCuff.LastReTime < Systems.AntiCuff.Cooldown then return end
+    Systems.AntiCuff.LastReTime = now
+
+    StarterGui:SetCore("SendNotification", {Title = "🔒 مضاد الكلبشة", Text = ".re " .. target.Name, Duration = 1})
+    sendHDCommand("re " .. target.Name)
+end
+
+-- ====== نظام مضاد نسخ مجاني ======
+local function AntiCopyFree_Execute()
+    local target = Systems.AntiCopyFree.Target
+    if Systems.AntiCopyFree.IsResetting or not target or not Systems.AntiCopyFree.Active then return end
+    Systems.AntiCopyFree.IsResetting = true
+
+    StarterGui:SetCore("SendNotification", {Title = "🛡️ مضاد النسخ المجاني", Text = "تطهير " .. target.Name, Duration = 1})
+    sendHDCommand("char " .. target.Name .. " 1")
+    task.wait(1)
+    sendHDCommand("unchar " .. target.Name)
+
+    task.wait(0.5)
+    Systems.AntiCopyFree.IsResetting = false
+end
+
+local function AntiCopyFree_Monitor(character)
+    if not character or not Systems.AntiCopyFree.Active then return end
+    local charTime = os.clock()
+
+    character.ChildAdded:Connect(function(obj)
+        if not Systems.AntiCopyFree.Active or Systems.AntiCopyFree.IsResetting then return end
+        if (os.clock() - charTime < 0.3) then return end
+        if ALLOWED_ITEMS[obj.ClassName] or obj:IsA("Accessory") then return end
+
+        local name = obj.Name:lower()
+        if name:match("head") or name:match("torso") or name:match("leg") or name:match("arm") then return end
+
+        if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+            AntiCopyFree_Execute()
+        end
+    end)
+end
+
+-- ====== نظام مضاد نسخ أدمن ======
+local function AntiCopyAdmin_Execute()
+    local target = Systems.AntiCopyAdmin.Target
+    if Systems.AntiCopyAdmin.IsResetting or not target or not Systems.AntiCopyAdmin.Active then return end
+
+    local now = os.clock()
+    if now - Systems.AntiCopyAdmin.LastReTime < Systems.AntiCopyAdmin.Cooldown then return end
+    Systems.AntiCopyAdmin.LastReTime = now
+    Systems.AntiCopyAdmin.IsResetting = true
+
+    StarterGui:SetCore("SendNotification", {Title = "👑 مضاد النسخ الأدمن", Text = ".re " .. target.Name, Duration = 1})
+
+    pcall(function()
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.Anchored = true
+        end
+    end)
+
+    task.wait(0.2)
+    sendHDCommand("re " .. target.Name)
+
+    task.wait(1)
+    Systems.AntiCopyAdmin.IsResetting = false
+
+    pcall(function()
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.Anchored = false
+        end
+    end)
+end
+
+local function AntiCopyAdmin_Monitor(character)
+    if not character or not Systems.AntiCopyAdmin.Active then return end
+    local charTime = os.clock()
+
+    character.ChildAdded:Connect(function(obj)
+        if not Systems.AntiCopyAdmin.Active or Systems.AntiCopyAdmin.IsResetting then return end
+        if (os.clock() - charTime < 0.3) then return end
+        if ALLOWED_ITEMS[obj.ClassName] or obj:IsA("Accessory") then return end
+
+        local name = obj.Name:lower()
+        if name:match("head") or name:match("torso") or name:match("leg") or name:match("arm") or
+           name:match("root") or name:match("hd") then return end
+
+        if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+            AntiCopyAdmin_Execute()
+        end
+    end)
+end
+
+-- ====== نظام مضاد رقص أدمن ======
+local function IsDance(anim)
+    if not anim:IsA("Animation") then return false end
+    if IGNORED_ITEMS[anim.Name] then return false end
+
+    if anim.Name:match("^HD%-%d+$") then
+        local nums = anim.Name:match("%d+")
+        if nums and #nums >= 10 then return true end
     end
 
-    -- ====== ربط الأزرار ======
-    local function toggleSystem(system, btnData, systemName, systemKey)
-        if system.Active then
-            system.Active = false
-            system.Target = nil
-            btnData.Btn.Text = "○ إيقاف"
-            btnData.Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-            btnData.Btn.TextColor3 = Color3.fromRGB(180, 180, 200)
-            StarterGui:SetCore("SendNotification", {Title = "⏹️ " .. systemName, Text = "تم إيقاف الحماية", Duration = 2})
-        else
-            local targetName = PlayerNameBox.Text
-            if targetName and targetName ~= "" then
-                local target = FindPlayer(targetName)
-                if target then
-                    system.Active = true
-                    system.Target = target
-                    btnData.Btn.Text = "● " .. target.Name
-                    btnData.Btn.BackgroundColor3 = btnData.Accent
-                    btnData.Btn.TextColor3 = Color3.new(1, 1, 1)
+    local lower = anim.Name:lower()
+    local words = {"dance", "رقص", "dancing", "move", "حركة", "animation"}
+    for _, w in ipairs(words) do
+        if lower:find(w) then return true end
+    end
+    return false
+end
 
-                    if target.Character then
-                        if systemKey == "AntiCopyFree" then
-                            AntiCopyFree_Monitor(target.Character)
-                        elseif systemKey == "AntiCopyAdmin" then
-                            AntiCopyAdmin_Monitor(target.Character)
-                        elseif systemKey == "AntiDance" then
-                            AntiDance_Monitor(target.Character)
-                            task.wait(1)
-                            for _, desc in pairs(target.Character:GetDescendants()) do
-                                if desc:IsA("Animation") and IsDance(desc) then
-                                    AntiDance_Execute()
-                                    break
-                                end
+local function AntiDance_Execute()
+    local target = Systems.AntiDance.Target
+    if not target or not Systems.AntiDance.Active then return end
+    local now = os.clock()
+    if now - Systems.AntiDance.LastExecTime < Systems.AntiDance.Cooldown then return end
+    Systems.AntiDance.LastExecTime = now
+    sendHDCommand("undog " .. target.Name)
+end
+
+local function AntiDance_Monitor(character)
+    if not character or not Systems.AntiDance.Active then return end
+    character.DescendantAdded:Connect(function(desc)
+        if not Systems.AntiDance.Active then return end
+        if desc:IsA("Tool") then return end
+        if desc:IsA("Animation") and IsDance(desc) then
+            task.wait(0)
+            AntiDance_Execute()
+        end
+    end)
+end
+
+-- ====== ربط الأزرار ======
+local function toggleSystem(system, btnData, systemName, systemKey)
+    if system.Active then
+        system.Active = false
+        system.Target = nil
+        btnData.Btn.Text = "○ إيقاف"
+        btnData.Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+        btnData.Btn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        StarterGui:SetCore("SendNotification", {Title = "⏹️ " .. systemName, Text = "تم إيقاف الحماية", Duration = 2})
+    else
+        local targetName = PlayerNameBox.Text
+        if targetName and targetName ~= "" then
+            local target = FindPlayer(targetName)
+            if target then
+                system.Active = true
+                system.Target = target
+                btnData.Btn.Text = "● " .. target.Name
+                btnData.Btn.BackgroundColor3 = btnData.Accent
+                btnData.Btn.TextColor3 = Color3.new(1, 1, 1)
+
+                if target.Character then
+                    if systemKey == "AntiCopyFree" then
+                        AntiCopyFree_Monitor(target.Character)
+                    elseif systemKey == "AntiCopyAdmin" then
+                        AntiCopyAdmin_Monitor(target.Character)
+                    elseif systemKey == "AntiDance" then
+                        AntiDance_Monitor(target.Character)
+                        task.wait(1)
+                        for _, desc in pairs(target.Character:GetDescendants()) do
+                            if desc:IsA("Animation") and IsDance(desc) then
+                                AntiDance_Execute()
+                                break
                             end
                         end
                     end
-
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "✅ " .. systemName,
-                        Text = "الحماية مفعلة لـ " .. target.Name,
-                        Duration = 3
-                    })
-                else
-                    StarterGui:SetCore("SendNotification", {Title = "❌ خطأ", Text = "لم يتم العثور على اللاعب", Duration = 2})
                 end
+
+                StarterGui:SetCore("SendNotification", {
+                    Title = "✅ " .. systemName,
+                    Text = "الحماية مفعلة لـ " .. target.Name,
+                    Duration = 3
+                })
             else
-                StarterGui:SetCore("SendNotification", {Title = "⚠️ تنبيه", Text = "اكتب اسم اللاعب أولاً", Duration = 2})
+                StarterGui:SetCore("SendNotification", {Title = "❌ خطأ", Text = "لم يتم العثور على اللاعب", Duration = 2})
             end
-        end
-    end
-
-    Btns.AntiCuff.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCuff, Btns.AntiCuff, "🔒 مضاد الكلبشة", "AntiCuff") end)
-    Btns.AntiCopyFree.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCopyFree, Btns.AntiCopyFree, "🛡️ مضاد النسخ المجاني", "AntiCopyFree") end)
-    Btns.AntiCopyAdmin.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCopyAdmin, Btns.AntiCopyAdmin, "👑 مضاد النسخ الأدمن", "AntiCopyAdmin") end)
-    Btns.AntiDance.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiDance, Btns.AntiDance, "🎭 مضاد الرقص", "AntiDance") end)
-
-    -- ====== التصغير والتكبير ======
-    local isMinimized = false
-
-    MinimizeBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if isMinimized then
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
-                Size = UDim2.new(0, 220, 0, 34)
-            }):Play()
-            InputFrame.Visible = false
-            for _, btn in pairs(Btns) do
-                btn.Frame.Visible = false
-            end
-            MinimizeBtn.Text = "+"
         else
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
-                Size = UDim2.new(0, 220, 0, 290)
-            }):Play()
-            task.wait(0.25)
-            InputFrame.Visible = true
-            for _, btn in pairs(Btns) do
-                btn.Frame.Visible = true
-            end
-            MinimizeBtn.Text = "−"
+            StarterGui:SetCore("SendNotification", {Title = "⚠️ تنبيه", Text = "اكتب اسم اللاعب أولاً", Duration = 2})
         end
-    end)
-
-    MinimizeBtn.MouseEnter:Connect(function()
-        TweenService:Create(MinimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(70, 70, 90)}):Play()
-    end)
-    MinimizeBtn.MouseLeave:Connect(function()
-        TweenService:Create(MinimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 50, 70)}):Play()
-    end)
-
-    -- ====== المراقبات ======
-    RunService.Heartbeat:Connect(function()
-        if Systems.AntiCuff.Active and Systems.AntiCuff.Target and IsCuffed(Systems.AntiCuff.Target) then
-            AntiCuff_Execute()
-        end
-    end)
-
-    local function onCharacterAdded(player)
-        player.CharacterAdded:Connect(function(character)
-            task.wait(0.5)
-            if Systems.AntiCopyFree.Active and Systems.AntiCopyFree.Target == player then
-                AntiCopyFree_Monitor(character)
-            end
-            if Systems.AntiCopyAdmin.Active and Systems.AntiCopyAdmin.Target == player then
-                AntiCopyAdmin_Monitor(character)
-            end
-            if Systems.AntiDance.Active and Systems.AntiDance.Target == player then
-                AntiDance_Monitor(character)
-            end
-        end)
     end
-
-    for _, p in ipairs(Players:GetPlayers()) do onCharacterAdded(p) end
-    Players.PlayerAdded:Connect(onCharacterAdded)
-
-    Players.PlayerRemoving:Connect(function(p)
-        for _, sys in pairs(Systems) do
-            if sys.Target == p then
-                sys.Active = false
-                sys.Target = nil
-            end
-        end
-        for _, btn in pairs(Btns) do
-            if btn.Btn.Text:find(p.Name) then
-                btn.Btn.Text = "○ إيقاف"
-                btn.Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
-                btn.Btn.TextColor3 = Color3.fromRGB(180, 180, 200)
-            end
-        end
-    end)
-
-    -- أنيميشن دخول
-    MainFrame.Size = UDim2.new(0, 220, 0, 0)
-    MainFrame.BackgroundTransparency = 1
-    TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 220, 0, 290),
-        BackgroundTransparency = 0.05
-    }):Play()
-
-    StarterGui:SetCore("SendNotification", {
-        Title = "🛡️ حماية الصديق",
-        Text = "النظام جاهز (4 أنظمة حماية)",
-        Duration = 3
-    })
 end
 
-LoadFriendProtectionScript()
+Btns.AntiCuff.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCuff, Btns.AntiCuff, "🔒 مضاد الكلبشة", "AntiCuff") end)
+Btns.AntiCopyFree.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCopyFree, Btns.AntiCopyFree, "🛡️ مضاد النسخ المجاني", "AntiCopyFree") end)
+Btns.AntiCopyAdmin.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiCopyAdmin, Btns.AntiCopyAdmin, "👑 مضاد النسخ الأدمن", "AntiCopyAdmin") end)
+Btns.AntiDance.Btn.MouseButton1Click:Connect(function() toggleSystem(Systems.AntiDance, Btns.AntiDance, "🎭 مضاد الرقص", "AntiDance") end)
+
+-- ====== التصغير والتكبير ======
+local isMinimized = false
+
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 220, 0, 34)
+        }):Play()
+        InputFrame.Visible = false
+        for _, btn in pairs(Btns) do
+            btn.Frame.Visible = false
+        end
+        MinimizeBtn.Text = "+"
+    else
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 220, 0, 290)
+        }):Play()
+        task.wait(0.25)
+        InputFrame.Visible = true
+        for _, btn in pairs(Btns) do
+            btn.Frame.Visible = true
+        end
+        MinimizeBtn.Text = "−"
+    end
+end)
+
+MinimizeBtn.MouseEnter:Connect(function()
+    TweenService:Create(MinimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(70, 70, 90)}):Play()
+end)
+MinimizeBtn.MouseLeave:Connect(function()
+    TweenService:Create(MinimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 50, 70)}):Play()
+end)
+
+-- ====== المراقبات ======
+RunService.Heartbeat:Connect(function()
+    if Systems.AntiCuff.Active and Systems.AntiCuff.Target and IsCuffed(Systems.AntiCuff.Target) then
+        AntiCuff_Execute()
+    end
+end)
+
+local function onCharacterAdded(player)
+    player.CharacterAdded:Connect(function(character)
+        task.wait(0.5)
+        if Systems.AntiCopyFree.Active and Systems.AntiCopyFree.Target == player then
+            AntiCopyFree_Monitor(character)
+        end
+        if Systems.AntiCopyAdmin.Active and Systems.AntiCopyAdmin.Target == player then
+            AntiCopyAdmin_Monitor(character)
+        end
+        if Systems.AntiDance.Active and Systems.AntiDance.Target == player then
+            AntiDance_Monitor(character)
+        end
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do onCharacterAdded(p) end
+Players.PlayerAdded:Connect(onCharacterAdded)
+
+Players.PlayerRemoving:Connect(function(p)
+    for _, sys in pairs(Systems) do
+        if sys.Target == p then
+            sys.Active = false
+            sys.Target = nil
+        end
+    end
+    for _, btn in pairs(Btns) do
+        if btn.Btn.Text:find(p.Name) then
+            btn.Btn.Text = "○ إيقاف"
+            btn.Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 60)
+            btn.Btn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        end
+    end
+end)
+
+-- أنيميشن دخول
+MainFrame.Size = UDim2.new(0, 220, 0, 0)
+MainFrame.BackgroundTransparency = 1
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 220, 0, 290),
+    BackgroundTransparency = 0.05
+}):Play()
+
+StarterGui:SetCore("SendNotification", {
+    Title = "🛡️ حماية الصديق",
+    Text = "النظام جاهز (4 أنظمة حماية)",
+    Duration = 3
+})
