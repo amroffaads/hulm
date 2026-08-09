@@ -1,339 +1,375 @@
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local playerName = LocalPlayer.Name
 
+-- ═══════════════════════════════════════════════════════════════════
+-- 🔒 فحص الصلاحية - يمنع التشغيل بدون رتبة
+-- ═══════════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local playerName = Players.LocalPlayer.Name
 local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
 local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
 
-local function CheckPermission(permName)
-    local function tryUrl(base)
-        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
-        local success, response = pcall(function()
-            return game:HttpGet(fullUrl)
-        end)
-        if not success then return nil end
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(response)
-        end)
-        if not ok or type(data) ~= "table" then return nil end
-        local perms = data.permissions or data
-        return perms[permName] == true
+local function CheckSingleAPI(url)
+    local fullUrl = url .. "/check?username=" .. HttpService:UrlEncode(playerName)
+    local success, response = pcall(function()
+        return game:HttpGet(fullUrl)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not ok or type(data) ~= "table" then return nil end
+    return data.permissions or data
+end
+
+local function HasPermission()
+    local data = CheckSingleAPI(API_BASE)
+    if not data then data = CheckSingleAPI(API_BACKUP) end
+    if not data then return false end
+    return data["gunfly"] == true
+end
+
+if not HasPermission() then
+    StarterGui:SetCore("SendNotification", {
+        Title = "🔒 مقفل",
+        Text = "ليس لديك صلاحية لهذا السكربت",
+        Duration = 3
+    })
+    return -- ⛔ يوقف السكربت بالكامل
+end
+-- ═══════════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PART 8: سكربت المسدس (GUN FLY / PRIME ATTACK) - كامل
+-- ═══════════════════════════════════════════════════════════════════
+
+getgenv().AttackSystem = {
+    TOOL_NAME = "فلوس بات مان",
+    Desync = true,
+    Direction = Vector3.new(0, 0, -3)
+}
+
+local Speed = 30
+local WeaponAngleOffset = 70
+local PredictionIntensity = 0.6
+
+local OrbitActive = false
+local ContinuousMode = false
+local dummyPart = nil
+local originalCameraSubject = nil
+local angle = 0
+local target = nil
+
+-- ═══════════════════════════════════════════════════════════════════
+-- بناء الواجهة المُصغّرة
+-- ═══════════════════════════════════════════════════════════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PrimeAttackSystem"
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 220, 0, 210)
+MainFrame.Position = UDim2.new(0.5, -110, 0.5, -105)
+MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+MainFrame.BackgroundTransparency = 0.05
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 12)
+
+local MainStroke = Instance.new("UIStroke", MainFrame)
+MainStroke.Color = Color3.fromRGB(0, 170, 255)
+MainStroke.Thickness = 1.2
+MainStroke.Transparency = 0.3
+
+local MainGradient = Instance.new("UIGradient", MainFrame)
+MainGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 14, 22)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 32)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 22))
+})
+MainGradient.Rotation = 45
+
+-- ====== شريط العنوان ======
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Size = UDim2.new(1, 0, 0, 34)
+TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+TitleBar.BackgroundTransparency = 0.1
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner", TitleBar)
+TitleCorner.CornerRadius = UDim.new(0, 12)
+
+local TitleGradient = Instance.new("UIGradient", TitleBar)
+TitleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 50)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 35))
+})
+TitleGradient.Rotation = 90
+
+local TitleIcon = Instance.new("TextLabel")
+TitleIcon.Text = "🔫"
+TitleIcon.Size = UDim2.new(0, 24, 0, 24)
+TitleIcon.Position = UDim2.new(0, 10, 0.5, -12)
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.TextSize = 16
+TitleIcon.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Text = "نظام الهجوم"
+TitleLabel.Size = UDim2.new(1, -60, 0, 18)
+TitleLabel.Position = UDim2.new(0, 36, 0.5, -9)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 13
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- زر التصغير فقط
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Name = "MinimizeBtn"
+MinimizeBtn.Text = "−"
+MinimizeBtn.Size = UDim2.new(0, 26, 0, 26)
+MinimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.TextSize = 15
+MinimizeBtn.AutoButtonColor = false
+MinimizeBtn.Parent = TitleBar
+Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 7)
+
+-- ====== حقل إدخال اسم الضحية ======
+local InputFrame = Instance.new("Frame")
+InputFrame.Name = "InputFrame"
+InputFrame.Size = UDim2.new(1, -16, 0, 32)
+InputFrame.Position = UDim2.new(0, 8, 0, 42)
+InputFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
+InputFrame.BackgroundTransparency = 0.2
+InputFrame.BorderSizePixel = 0
+InputFrame.Parent = MainFrame
+Instance.new("UICorner", InputFrame).CornerRadius = UDim.new(0, 8)
+
+local InputStroke = Instance.new("UIStroke", InputFrame)
+InputStroke.Color = Color3.fromRGB(60, 60, 90)
+InputStroke.Thickness = 1
+InputStroke.Transparency = 0.4
+
+local TextBox = Instance.new("TextBox")
+TextBox.Name = "VictimBox"
+TextBox.Size = UDim2.new(0.92, 0, 0, 28)
+TextBox.Position = UDim2.new(0.04, 0, 0.5, -14)
+TextBox.BackgroundTransparency = 1
+TextBox.TextColor3 = Color3.new(1, 1, 1)
+TextBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 150)
+TextBox.PlaceholderText = "اسم الضحية..."
+TextBox.Text = ""
+TextBox.Font = Enum.Font.Gotham
+TextBox.TextSize = 12
+TextBox.TextXAlignment = Enum.TextXAlignment.Center
+TextBox.Parent = InputFrame
+
+-- ====== زر الهجوم المؤقت ======
+local AttackBtnFrame = Instance.new("Frame")
+AttackBtnFrame.Size = UDim2.new(1, -16, 0, 36)
+AttackBtnFrame.Position = UDim2.new(0, 8, 0, 80)
+AttackBtnFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+AttackBtnFrame.BackgroundTransparency = 0.15
+AttackBtnFrame.BorderSizePixel = 0
+AttackBtnFrame.Parent = MainFrame
+Instance.new("UICorner", AttackBtnFrame).CornerRadius = UDim.new(0, 8)
+
+local AttackBtnStroke = Instance.new("UIStroke", AttackBtnFrame)
+AttackBtnStroke.Color = Color3.fromRGB(50, 50, 70)
+AttackBtnStroke.Thickness = 1
+AttackBtnStroke.Transparency = 0.5
+
+local AttackIcon = Instance.new("TextLabel")
+AttackIcon.Text = "⚡"
+AttackIcon.Size = UDim2.new(0, 22, 0, 22)
+AttackIcon.Position = UDim2.new(0, 8, 0.5, -11)
+AttackIcon.BackgroundTransparency = 1
+AttackIcon.TextSize = 14
+AttackIcon.Parent = AttackBtnFrame
+
+local AttackLabel = Instance.new("TextLabel")
+AttackLabel.Text = "هجوم مؤقت (4 ثواني)"
+AttackLabel.Size = UDim2.new(0, 120, 1, 0)
+AttackLabel.Position = UDim2.new(0, 34, 0, 0)
+AttackLabel.BackgroundTransparency = 1
+AttackLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
+AttackLabel.Font = Enum.Font.GothamBold
+AttackLabel.TextSize = 10
+AttackLabel.TextXAlignment = Enum.TextXAlignment.Left
+AttackLabel.Parent = AttackBtnFrame
+
+local AttackBtn = Instance.new("TextButton")
+AttackBtn.Name = "AttackBtn"
+AttackBtn.Text = "تشغيل"
+AttackBtn.Size = UDim2.new(0, 62, 0, 26)
+AttackBtn.Position = UDim2.new(1, -72, 0.5, -13)
+AttackBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+AttackBtn.TextColor3 = Color3.new(1, 1, 1)
+AttackBtn.Font = Enum.Font.GothamBold
+AttackBtn.TextSize = 10
+AttackBtn.AutoButtonColor = false
+AttackBtn.Parent = AttackBtnFrame
+Instance.new("UICorner", AttackBtn).CornerRadius = UDim.new(0, 7)
+
+local AttackBtnStroke = Instance.new("UIStroke", AttackBtn)
+AttackBtnStroke.Color = Color3.fromRGB(0, 150, 255)
+AttackBtnStroke.Thickness = 1
+AttackBtnStroke.Transparency = 0.4
+
+-- ====== زر الهجوم المستمر ======
+local ToggleBtnFrame = Instance.new("Frame")
+ToggleBtnFrame.Size = UDim2.new(1, -16, 0, 36)
+ToggleBtnFrame.Position = UDim2.new(0, 8, 0, 122)
+ToggleBtnFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+ToggleBtnFrame.BackgroundTransparency = 0.15
+ToggleBtnFrame.BorderSizePixel = 0
+ToggleBtnFrame.Parent = MainFrame
+Instance.new("UICorner", ToggleBtnFrame).CornerRadius = UDim.new(0, 8)
+
+local ToggleBtnStroke = Instance.new("UIStroke", ToggleBtnFrame)
+ToggleBtnStroke.Color = Color3.fromRGB(50, 50, 70)
+ToggleBtnStroke.Thickness = 1
+ToggleBtnStroke.Transparency = 0.5
+
+local ToggleIcon = Instance.new("TextLabel")
+ToggleIcon.Text = "🔁"
+ToggleIcon.Size = UDim2.new(0, 22, 0, 22)
+ToggleIcon.Position = UDim2.new(0, 8, 0.5, -11)
+ToggleIcon.BackgroundTransparency = 1
+ToggleIcon.TextSize = 14
+ToggleIcon.Parent = ToggleBtnFrame
+
+local ToggleLabel = Instance.new("TextLabel")
+ToggleLabel.Text = "هجوم مستمر"
+ToggleLabel.Size = UDim2.new(0, 100, 1, 0)
+ToggleLabel.Position = UDim2.new(0, 34, 0, 0)
+ToggleLabel.BackgroundTransparency = 1
+ToggleLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
+ToggleLabel.Font = Enum.Font.GothamBold
+ToggleLabel.TextSize = 10
+ToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+ToggleLabel.Parent = ToggleBtnFrame
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "ToggleBtn"
+ToggleBtn.Text = "▶ تشغيل"
+ToggleBtn.Size = UDim2.new(0, 62, 0, 26)
+ToggleBtn.Position = UDim2.new(1, -72, 0.5, -13)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 50)
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 10
+ToggleBtn.AutoButtonColor = false
+ToggleBtn.Parent = ToggleBtnFrame
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 7)
+
+local ToggleBtnStroke = Instance.new("UIStroke", ToggleBtn)
+ToggleBtnStroke.Color = Color3.fromRGB(50, 200, 80)
+ToggleBtnStroke.Thickness = 1
+ToggleBtnStroke.Transparency = 0.4
+
+-- ====== تأثيرات Hover ======
+local function addHoverEffect(button, originalColor, hoverColor)
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
+    end)
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
+    end)
+end
+
+addHoverEffect(AttackBtn, Color3.fromRGB(0, 120, 200), Color3.fromRGB(0, 150, 255))
+addHoverEffect(ToggleBtn, Color3.fromRGB(0, 150, 50), Color3.fromRGB(0, 200, 70))
+addHoverEffect(MinimizeBtn, Color3.fromRGB(50, 50, 70), Color3.fromRGB(70, 70, 90))
+
+-- ═══════════════════════════════════════════════════════════════════
+-- الدوال الأصلية (بدون تغيير)
+-- ═══════════════════════════════════════════════════════════════════
+local function stopAttack()
+    OrbitActive = false
+    ContinuousMode = false
+    target = nil
+    task.wait(0.05)
+    if dummyPart then
+        if originalCameraSubject and originalCameraSubject.Parent then
+            Workspace.CurrentCamera.CameraSubject = originalCameraSubject
+        else
+            Workspace.CurrentCamera.CameraSubject = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        end
+        dummyPart:Destroy()
+        dummyPart = nil
     end
-    local result = tryUrl(API_BASE)
-    if result == nil then result = tryUrl(API_BACKUP) end
-    return result == true
-end
-
-if not CheckPermission("gunfly") then
-    return
-end
-
-local function LoadGunFlyScript()
-    local LocalPlayer = game:GetService("Players").LocalPlayer
-    local RunService = game:GetService("RunService")
-    local UserInputService = game:GetService("UserInputService")
-    local Workspace = game:GetService("Workspace")
-    local StarterGui = game:GetService("StarterGui")
-    local TweenService = game:GetService("TweenService")
-
-    getgenv().AttackSystem = {
-        TOOL_NAME = "فلوس بات مان",
-        Desync = true,
-        Direction = Vector3.new(0, 0, -3)
-    }
-
-    local Speed = 30
-    local WeaponAngleOffset = 70
-    local PredictionIntensity = 0.6
-
-    local OrbitActive = false
-    local ContinuousMode = false
-    local dummyPart = nil
-    local originalCameraSubject = nil
-    local angle = 0
-    local target = nil
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- بناء الواجهة المُصغّرة
-    -- ═══════════════════════════════════════════════════════════════════
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "PrimeAttackSystem"
-    ScreenGui.Parent = game:GetService("CoreGui")
-    ScreenGui.ResetOnSpawn = false
-
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 220, 0, 210)
-    MainFrame.Position = UDim2.new(0.5, -110, 0.5, -105)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
-    MainFrame.BackgroundTransparency = 0.05
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-    MainFrame.ClipsDescendants = true
-    MainFrame.Parent = ScreenGui
-
-    local MainCorner = Instance.new("UICorner", MainFrame)
-    MainCorner.CornerRadius = UDim.new(0, 12)
-
-    local MainStroke = Instance.new("UIStroke", MainFrame)
-    MainStroke.Color = Color3.fromRGB(0, 170, 255)
-    MainStroke.Thickness = 1.2
-    MainStroke.Transparency = 0.3
-
-    local MainGradient = Instance.new("UIGradient", MainFrame)
-    MainGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 14, 22)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 32)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 22))
-    })
-    MainGradient.Rotation = 45
-
-    -- ====== شريط العنوان ======
-    local TitleBar = Instance.new("Frame")
-    TitleBar.Name = "TitleBar"
-    TitleBar.Size = UDim2.new(1, 0, 0, 34)
-    TitleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
-    TitleBar.BackgroundTransparency = 0.1
-    TitleBar.BorderSizePixel = 0
-    TitleBar.Parent = MainFrame
-
-    local TitleCorner = Instance.new("UICorner", TitleBar)
-    TitleCorner.CornerRadius = UDim.new(0, 12)
-
-    local TitleGradient = Instance.new("UIGradient", TitleBar)
-    TitleGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 50)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 35))
-    })
-    TitleGradient.Rotation = 90
-
-    local TitleIcon = Instance.new("TextLabel")
-    TitleIcon.Text = "🔫"
-    TitleIcon.Size = UDim2.new(0, 24, 0, 24)
-    TitleIcon.Position = UDim2.new(0, 10, 0.5, -12)
-    TitleIcon.BackgroundTransparency = 1
-    TitleIcon.TextSize = 16
-    TitleIcon.Parent = TitleBar
-
-    local TitleLabel = Instance.new("TextLabel")
-    TitleLabel.Text = "نظام الهجوم"
-    TitleLabel.Size = UDim2.new(1, -60, 0, 18)
-    TitleLabel.Position = UDim2.new(0, 36, 0.5, -9)
-    TitleLabel.BackgroundTransparency = 1
-    TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
-    TitleLabel.Font = Enum.Font.GothamBold
-    TitleLabel.TextSize = 13
-    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    TitleLabel.Parent = TitleBar
-
-    -- زر التصغير فقط
-    local MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Name = "MinimizeBtn"
-    MinimizeBtn.Text = "−"
-    MinimizeBtn.Size = UDim2.new(0, 26, 0, 26)
-    MinimizeBtn.Position = UDim2.new(1, -32, 0.5, -13)
-    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-    MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-    MinimizeBtn.Font = Enum.Font.GothamBold
-    MinimizeBtn.TextSize = 15
-    MinimizeBtn.AutoButtonColor = false
-    MinimizeBtn.Parent = TitleBar
-    Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 7)
-
-    -- ====== حقل إدخال اسم الضحية ======
-    local InputFrame = Instance.new("Frame")
-    InputFrame.Name = "InputFrame"
-    InputFrame.Size = UDim2.new(1, -16, 0, 32)
-    InputFrame.Position = UDim2.new(0, 8, 0, 42)
-    InputFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
-    InputFrame.BackgroundTransparency = 0.2
-    InputFrame.BorderSizePixel = 0
-    InputFrame.Parent = MainFrame
-    Instance.new("UICorner", InputFrame).CornerRadius = UDim.new(0, 8)
-
-    local InputStroke = Instance.new("UIStroke", InputFrame)
-    InputStroke.Color = Color3.fromRGB(60, 60, 90)
-    InputStroke.Thickness = 1
-    InputStroke.Transparency = 0.4
-
-    local TextBox = Instance.new("TextBox")
-    TextBox.Name = "VictimBox"
-    TextBox.Size = UDim2.new(0.92, 0, 0, 28)
-    TextBox.Position = UDim2.new(0.04, 0, 0.5, -14)
-    TextBox.BackgroundTransparency = 1
-    TextBox.TextColor3 = Color3.new(1, 1, 1)
-    TextBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 150)
-    TextBox.PlaceholderText = "اسم الضحية..."
-    TextBox.Text = ""
-    TextBox.Font = Enum.Font.Gotham
-    TextBox.TextSize = 12
-    TextBox.TextXAlignment = Enum.TextXAlignment.Center
-    TextBox.Parent = InputFrame
-
-    -- ====== زر الهجوم المؤقت ======
-    local AttackBtnFrame = Instance.new("Frame")
-    AttackBtnFrame.Size = UDim2.new(1, -16, 0, 36)
-    AttackBtnFrame.Position = UDim2.new(0, 8, 0, 80)
-    AttackBtnFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
-    AttackBtnFrame.BackgroundTransparency = 0.15
-    AttackBtnFrame.BorderSizePixel = 0
-    AttackBtnFrame.Parent = MainFrame
-    Instance.new("UICorner", AttackBtnFrame).CornerRadius = UDim.new(0, 8)
-
-    local AttackBtnStroke = Instance.new("UIStroke", AttackBtnFrame)
-    AttackBtnStroke.Color = Color3.fromRGB(50, 50, 70)
-    AttackBtnStroke.Thickness = 1
-    AttackBtnStroke.Transparency = 0.5
-
-    local AttackIcon = Instance.new("TextLabel")
-    AttackIcon.Text = "⚡"
-    AttackIcon.Size = UDim2.new(0, 22, 0, 22)
-    AttackIcon.Position = UDim2.new(0, 8, 0.5, -11)
-    AttackIcon.BackgroundTransparency = 1
-    AttackIcon.TextSize = 14
-    AttackIcon.Parent = AttackBtnFrame
-
-    local AttackLabel = Instance.new("TextLabel")
-    AttackLabel.Text = "هجوم مؤقت (4 ثواني)"
-    AttackLabel.Size = UDim2.new(0, 120, 1, 0)
-    AttackLabel.Position = UDim2.new(0, 34, 0, 0)
-    AttackLabel.BackgroundTransparency = 1
-    AttackLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
-    AttackLabel.Font = Enum.Font.GothamBold
-    AttackLabel.TextSize = 10
-    AttackLabel.TextXAlignment = Enum.TextXAlignment.Left
-    AttackLabel.Parent = AttackBtnFrame
-
-    local AttackBtn = Instance.new("TextButton")
-    AttackBtn.Name = "AttackBtn"
-    AttackBtn.Text = "تشغيل"
-    AttackBtn.Size = UDim2.new(0, 62, 0, 26)
-    AttackBtn.Position = UDim2.new(1, -72, 0.5, -13)
-    AttackBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
-    AttackBtn.TextColor3 = Color3.new(1, 1, 1)
-    AttackBtn.Font = Enum.Font.GothamBold
-    AttackBtn.TextSize = 10
-    AttackBtn.AutoButtonColor = false
-    AttackBtn.Parent = AttackBtnFrame
-    Instance.new("UICorner", AttackBtn).CornerRadius = UDim.new(0, 7)
-
-    local AttackBtnStroke = Instance.new("UIStroke", AttackBtn)
-    AttackBtnStroke.Color = Color3.fromRGB(0, 150, 255)
-    AttackBtnStroke.Thickness = 1
-    AttackBtnStroke.Transparency = 0.4
-
-    -- ====== زر الهجوم المستمر ======
-    local ToggleBtnFrame = Instance.new("Frame")
-    ToggleBtnFrame.Size = UDim2.new(1, -16, 0, 36)
-    ToggleBtnFrame.Position = UDim2.new(0, 8, 0, 122)
-    ToggleBtnFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
-    ToggleBtnFrame.BackgroundTransparency = 0.15
-    ToggleBtnFrame.BorderSizePixel = 0
-    ToggleBtnFrame.Parent = MainFrame
-    Instance.new("UICorner", ToggleBtnFrame).CornerRadius = UDim.new(0, 8)
-
-    local ToggleBtnStroke = Instance.new("UIStroke", ToggleBtnFrame)
-    ToggleBtnStroke.Color = Color3.fromRGB(50, 50, 70)
-    ToggleBtnStroke.Thickness = 1
-    ToggleBtnStroke.Transparency = 0.5
-
-    local ToggleIcon = Instance.new("TextLabel")
-    ToggleIcon.Text = "🔁"
-    ToggleIcon.Size = UDim2.new(0, 22, 0, 22)
-    ToggleIcon.Position = UDim2.new(0, 8, 0.5, -11)
-    ToggleIcon.BackgroundTransparency = 1
-    ToggleIcon.TextSize = 14
-    ToggleIcon.Parent = ToggleBtnFrame
-
-    local ToggleLabel = Instance.new("TextLabel")
-    ToggleLabel.Text = "هجوم مستمر"
-    ToggleLabel.Size = UDim2.new(0, 100, 1, 0)
-    ToggleLabel.Position = UDim2.new(0, 34, 0, 0)
-    ToggleLabel.BackgroundTransparency = 1
-    ToggleLabel.TextColor3 = Color3.fromRGB(220, 220, 235)
-    ToggleLabel.Font = Enum.Font.GothamBold
-    ToggleLabel.TextSize = 10
-    ToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    ToggleLabel.Parent = ToggleBtnFrame
-
-    local ToggleBtn = Instance.new("TextButton")
-    ToggleBtn.Name = "ToggleBtn"
     ToggleBtn.Text = "▶ تشغيل"
-    ToggleBtn.Size = UDim2.new(0, 62, 0, 26)
-    ToggleBtn.Position = UDim2.new(1, -72, 0.5, -13)
     ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 50)
-    ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
-    ToggleBtn.Font = Enum.Font.GothamBold
-    ToggleBtn.TextSize = 10
-    ToggleBtn.AutoButtonColor = false
-    ToggleBtn.Parent = ToggleBtnFrame
-    Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 7)
+end
 
-    local ToggleBtnStroke = Instance.new("UIStroke", ToggleBtn)
-    ToggleBtnStroke.Color = Color3.fromRGB(50, 200, 80)
-    ToggleBtnStroke.Thickness = 1
-    ToggleBtnStroke.Transparency = 0.4
-
-    -- ====== تأثيرات Hover ======
-    local function addHoverEffect(button, originalColor, hoverColor)
-        button.MouseEnter:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
-        end)
-        button.MouseLeave:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
-        end)
+local function getTarget(name)
+    for _, v in pairs(game:GetService("Players"):GetPlayers()) do
+        if v ~= LocalPlayer and (v.Name:lower():find(name:lower()) or v.DisplayName:lower():find(name:lower())) then
+            return v
+        end
     end
+    return nil
+end
 
-    addHoverEffect(AttackBtn, Color3.fromRGB(0, 120, 200), Color3.fromRGB(0, 150, 255))
-    addHoverEffect(ToggleBtn, Color3.fromRGB(0, 150, 50), Color3.fromRGB(0, 200, 70))
-    addHoverEffect(MinimizeBtn, Color3.fromRGB(50, 50, 70), Color3.fromRGB(70, 70, 90))
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- الدوال الأصلية (بدون تغيير)
-    -- ═══════════════════════════════════════════════════════════════════
-    local function stopAttack()
-        OrbitActive = false
+-- ═══════════════════════════════════════════════════════════════════
+-- ربط الأزرار (نفس المنطق)
+-- ═══════════════════════════════════════════════════════════════════
+AttackBtn.MouseButton1Click:Connect(function()
+    local found = getTarget(TextBox.Text)
+    if found and found.Character and found.Character:FindFirstChild("HumanoidRootPart") then
+        target = found
+        local tool = LocalPlayer.Backpack:FindFirstChild(getgenv().AttackSystem.TOOL_NAME) or LocalPlayer.Character:FindFirstChild(getgenv().AttackSystem.TOOL_NAME)
+        if tool then LocalPlayer.Character.Humanoid:EquipTool(tool) end
+        OrbitActive = true
         ContinuousMode = false
-        target = nil
-        task.wait(0.05)
-        if dummyPart then
-            if originalCameraSubject and originalCameraSubject.Parent then
-                Workspace.CurrentCamera.CameraSubject = originalCameraSubject
-            else
-                Workspace.CurrentCamera.CameraSubject = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            end
-            dummyPart:Destroy()
-            dummyPart = nil
-        end
-        ToggleBtn.Text = "▶ تشغيل"
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 50)
+        task.delay(4, function()
+            if OrbitActive and not ContinuousMode then stopAttack() end
+        end)
+    else
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ خطأ",
+            Text = "لم يتم العثور على اللاعب",
+            Duration = 2
+        })
     end
+end)
 
-    local function getTarget(name)
-        for _, v in pairs(game:GetService("Players"):GetPlayers()) do
-            if v ~= LocalPlayer and (v.Name:lower():find(name:lower()) or v.DisplayName:lower():find(name:lower())) then
-                return v
-            end
-        end
-        return nil
-    end
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- ربط الأزرار (نفس المنطق)
-    -- ═══════════════════════════════════════════════════════════════════
-    AttackBtn.MouseButton1Click:Connect(function()
+ToggleBtn.MouseButton1Click:Connect(function()
+    if not OrbitActive then
         local found = getTarget(TextBox.Text)
         if found and found.Character and found.Character:FindFirstChild("HumanoidRootPart") then
             target = found
             local tool = LocalPlayer.Backpack:FindFirstChild(getgenv().AttackSystem.TOOL_NAME) or LocalPlayer.Character:FindFirstChild(getgenv().AttackSystem.TOOL_NAME)
             if tool then LocalPlayer.Character.Humanoid:EquipTool(tool) end
             OrbitActive = true
-            ContinuousMode = false
-            task.delay(4, function()
-                if OrbitActive and not ContinuousMode then stopAttack() end
-            end)
+            ContinuousMode = true
+            ToggleBtn.Text = "⏸ إيقاف"
+            ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         else
             StarterGui:SetCore("SendNotification", {
                 Title = "❌ خطأ",
@@ -341,142 +377,119 @@ local function LoadGunFlyScript()
                 Duration = 2
             })
         end
-    end)
+    else
+        stopAttack()
+    end
+end)
 
-    ToggleBtn.MouseButton1Click:Connect(function()
-        if not OrbitActive then
-            local found = getTarget(TextBox.Text)
-            if found and found.Character and found.Character:FindFirstChild("HumanoidRootPart") then
-                target = found
-                local tool = LocalPlayer.Backpack:FindFirstChild(getgenv().AttackSystem.TOOL_NAME) or LocalPlayer.Character:FindFirstChild(getgenv().AttackSystem.TOOL_NAME)
-                if tool then LocalPlayer.Character.Humanoid:EquipTool(tool) end
-                OrbitActive = true
-                ContinuousMode = true
-                ToggleBtn.Text = "⏸ إيقاف"
-                ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+-- ═══════════════════════════════════════════════════════════════════
+-- التصغير والتكبير
+-- ═══════════════════════════════════════════════════════════════════
+local isMinimized = false
+
+MinimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 220, 0, 34)
+        }):Play()
+        InputFrame.Visible = false
+        AttackBtnFrame.Visible = false
+        ToggleBtnFrame.Visible = false
+        MinimizeBtn.Text = "+"
+    else
+        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 220, 0, 210)
+        }):Play()
+        task.wait(0.25)
+        InputFrame.Visible = true
+        AttackBtnFrame.Visible = true
+        ToggleBtnFrame.Visible = true
+        MinimizeBtn.Text = "−"
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════════
+-- نظام الهجوم (بدون تغيير)
+-- ═══════════════════════════════════════════════════════════════════
+RunService.Heartbeat:Connect(function()
+    if OrbitActive and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        local tool = LocalPlayer.Character:FindFirstChild(getgenv().AttackSystem.TOOL_NAME)
+        local oldPos = hrp.CFrame
+
+        if not dummyPart then
+            dummyPart = Instance.new("Part")
+            dummyPart.Name = "CameraAnchor"
+            dummyPart.Anchored = true
+            dummyPart.Transparency = 1
+            dummyPart.CanCollide = false
+            dummyPart.Parent = Workspace
+            originalCameraSubject = Workspace.CurrentCamera.CameraSubject
+            Workspace.CurrentCamera.CameraSubject = dummyPart
+        end
+
+        if dummyPart then
+            dummyPart.CFrame = oldPos * CFrame.new(0, 1.5, 0)
+        end
+
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local tRoot = target.Character.HumanoidRootPart
+            local tChar = target.Character
+
+            local predictedPosition = tRoot.Position + (tRoot.Velocity * PredictionIntensity)
+            local tSize = tChar:GetExtentsSize().Y
+            local dynamicHeight = -(tSize * 0.3)
+
+            local armOffset = 0.7
+            if tool and tool:FindFirstChild("Handle") then
+                armOffset = (hrp.Position - tool.Handle.Position).Magnitude
+            end
+
+            local dynamicRadius = armOffset * 1
+
+            angle = angle + Speed
+            local x = math.cos(math.rad(angle)) * dynamicRadius
+            local z = math.sin(math.rad(angle)) * dynamicRadius
+
+            local orbitPosition = predictedPosition + Vector3.new(x, dynamicHeight, z)
+            local calculatedPosition = CFrame.new(orbitPosition, predictedPosition)
+                                         * CFrame.Angles(0, math.rad(WeaponAngleOffset), 0)
+
+            if getgenv().AttackSystem.Desync == true then
+                local abc = hrp.Velocity
+                hrp.CFrame = calculatedPosition
+                hrp.Velocity = getgenv().AttackSystem.Direction * (2^100)
+                RunService.RenderStepped:Wait()
+                if hrp and hrp.Parent then
+                    hrp.Velocity = abc
+                    hrp.CFrame = oldPos
+                end
             else
-                StarterGui:SetCore("SendNotification", {
-                    Title = "❌ خطأ",
-                    Text = "لم يتم العثور على اللاعب",
-                    Duration = 2
-                })
-            end
-        else
-            stopAttack()
-        end
-    end)
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- التصغير والتكبير
-    -- ═══════════════════════════════════════════════════════════════════
-    local isMinimized = false
-
-    MinimizeBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if isMinimized then
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
-                Size = UDim2.new(0, 220, 0, 34)
-            }):Play()
-            InputFrame.Visible = false
-            AttackBtnFrame.Visible = false
-            ToggleBtnFrame.Visible = false
-            MinimizeBtn.Text = "+"
-        else
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
-                Size = UDim2.new(0, 220, 0, 210)
-            }):Play()
-            task.wait(0.25)
-            InputFrame.Visible = true
-            AttackBtnFrame.Visible = true
-            ToggleBtnFrame.Visible = true
-            MinimizeBtn.Text = "−"
-        end
-    end)
-
-    -- ═══════════════════════════════════════════════════════════════════
-    -- نظام الهجوم (بدون تغيير)
-    -- ═══════════════════════════════════════════════════════════════════
-    RunService.Heartbeat:Connect(function()
-        if OrbitActive and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local hrp = LocalPlayer.Character.HumanoidRootPart
-            local tool = LocalPlayer.Character:FindFirstChild(getgenv().AttackSystem.TOOL_NAME)
-            local oldPos = hrp.CFrame
-
-            if not dummyPart then
-                dummyPart = Instance.new("Part")
-                dummyPart.Name = "CameraAnchor"
-                dummyPart.Anchored = true
-                dummyPart.Transparency = 1
-                dummyPart.CanCollide = false
-                dummyPart.Parent = Workspace
-                originalCameraSubject = Workspace.CurrentCamera.CameraSubject
-                Workspace.CurrentCamera.CameraSubject = dummyPart
-            end
-
-            if dummyPart then
-                dummyPart.CFrame = oldPos * CFrame.new(0, 1.5, 0)
-            end
-
-            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                local tRoot = target.Character.HumanoidRootPart
-                local tChar = target.Character
-
-                local predictedPosition = tRoot.Position + (tRoot.Velocity * PredictionIntensity)
-                local tSize = tChar:GetExtentsSize().Y
-                local dynamicHeight = -(tSize * 0.3)
-
-                local armOffset = 0.7
-                if tool and tool:FindFirstChild("Handle") then
-                    armOffset = (hrp.Position - tool.Handle.Position).Magnitude
-                end
-
-                local dynamicRadius = armOffset * 1
-
-                angle = angle + Speed
-                local x = math.cos(math.rad(angle)) * dynamicRadius
-                local z = math.sin(math.rad(angle)) * dynamicRadius
-
-                local orbitPosition = predictedPosition + Vector3.new(x, dynamicHeight, z)
-                local calculatedPosition = CFrame.new(orbitPosition, predictedPosition)
-                                             * CFrame.Angles(0, math.rad(WeaponAngleOffset), 0)
-
-                if getgenv().AttackSystem.Desync == true then
-                    local abc = hrp.Velocity
-                    hrp.CFrame = calculatedPosition
-                    hrp.Velocity = getgenv().AttackSystem.Direction * (2^100)
-                    RunService.RenderStepped:Wait()
-                    if hrp and hrp.Parent then
-                        hrp.Velocity = abc
-                        hrp.CFrame = oldPos
-                    end
-                else
-                    hrp.CFrame = calculatedPosition
-                    RunService.RenderStepped:Wait()
-                    if hrp and hrp.Parent then
-                        hrp.CFrame = oldPos
-                    end
+                hrp.CFrame = calculatedPosition
+                RunService.RenderStepped:Wait()
+                if hrp and hrp.Parent then
+                    hrp.CFrame = oldPos
                 end
             end
         end
-    end)
+    end
+end)
 
-    UserInputService.InputBegan:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.Escape then stopAttack() end
-    end)
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Escape then stopAttack() end
+end)
 
-    -- أنيميشن دخول
-    MainFrame.Size = UDim2.new(0, 220, 0, 0)
-    MainFrame.BackgroundTransparency = 1
-    TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 220, 0, 210),
-        BackgroundTransparency = 0.05
-    }):Play()
+-- أنيميشن دخول
+MainFrame.Size = UDim2.new(0, 220, 0, 0)
+MainFrame.BackgroundTransparency = 1
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 220, 0, 210),
+    BackgroundTransparency = 0.05
+}):Play()
 
-    StarterGui:SetCore("SendNotification", {
-        Title = "🔫 نظام الهجوم",
-        Text = "تم تحميل السكربت بنجاح",
-        Duration = 3
-    })
-end
-
-LoadGunFlyScript()
+StarterGui:SetCore("SendNotification", {
+    Title = "🔫 نظام الهجوم",
+    Text = "تم تحميل السكربت بنجاح",
+    Duration = 3
+})
