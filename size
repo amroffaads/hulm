@@ -1,428 +1,464 @@
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local playerName = LocalPlayer.Name
 
+-- ═══════════════════════════════════════════════════════════════════
+-- 🔒 فحص الصلاحية - يمنع التشغيل بدون رتبة
+-- ═══════════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+
+local playerName = Players.LocalPlayer.Name
 local API_BASE = "https://amr-s-domino-control-panel.onrender.com/api"
 local API_BACKUP = "https://amr-s-domino-control-panel.vercel.app/api"
 
-local function CheckPermission(permName)
-    local function tryUrl(base)
-        local fullUrl = base .. "/check?username=" .. HttpService:UrlEncode(playerName)
-        local success, response = pcall(function()
-            return game:HttpGet(fullUrl)
-        end)
-        if not success then return nil end
-        local ok, data = pcall(function()
-            return HttpService:JSONDecode(response)
-        end)
-        if not ok or type(data) ~= "table" then return nil end
-        local perms = data.permissions or data
-        return perms[permName] == true
-    end
-    local result = tryUrl(API_BASE)
-    if result == nil then result = tryUrl(API_BACKUP) end
-    return result == true
+local function CheckSingleAPI(url)
+    local fullUrl = url .. "/check?username=" .. HttpService:UrlEncode(playerName)
+    local success, response = pcall(function()
+        return game:HttpGet(fullUrl)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not ok or type(data) ~= "table" then return nil end
+    return data.permissions or data
 end
 
-if not CheckPermission("size") then
-    return
+local function HasPermission()
+    local data = CheckSingleAPI(API_BASE)
+    if not data then data = CheckSingleAPI(API_BACKUP) end
+    if not data then return false end
+    return data["size"] == true
 end
 
-local function LoadSizeScript()
-    local function missing(t, f, fallback)
-        if type(f) == t then return f end
-        return fallback
-    end
-
-    cloneref = missing("function", cloneref, function(...) return ... end)
-
-    local Services = setmetatable({}, {
-        __index = function(_, name)
-            return cloneref(game:GetService(name))
-        end
-    })
-
-    local ReplicatedStorage = Services.ReplicatedStorage
-    local RunService = Services.RunService
-    local UserInputService = Services.UserInputService
-    local TweenService = Services.TweenService
-    local StarterGui = Services.StarterGui
-
-    local player = Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:WaitForChild("Humanoid")
-
-    player.CharacterAdded:Connect(function(newCharacter)
-        character = newCharacter
-        humanoid = newCharacter:WaitForChild("Humanoid")
-    end)
-
-    local Settings = {
-        ["Weight"] = 1,
-        ["Time Position"] = 0
-    }
-    local CurrentTrack = nil
-    local emoteId = "93224413172183"
-
-    -- ═══════════════════════════════════════════════════════════════
-    --  الواجهة الفاخرة - Compact Premium Edition
-    -- ═══════════════════════════════════════════════════════════════
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "EliteEmoteUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
-
-    -- الإطار الرئيسي - أصغر
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 220, 0, 200)
-    mainFrame.Position = UDim2.new(0.5, -110, 0.5, -100)
-    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 22)
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Active = true
-    mainFrame.ClipsDescendants = true
-    mainFrame.Parent = screenGui
-
-    local mainCorner = Instance.new("UICorner", mainFrame)
-    mainCorner.CornerRadius = UDim.new(0, 12)
-
-    local outerStroke = Instance.new("UIStroke", mainFrame)
-    outerStroke.Color = Color3.fromRGB(0, 180, 255)
-    outerStroke.Thickness = 1.2
-    outerStroke.Transparency = 0.15
-
-    local bgGradient = Instance.new("UIGradient", mainFrame)
-    bgGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 30)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 40)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 12, 25))
-    })
-    bgGradient.Rotation = 135
-
-    -- شريط العنوان - أصغر
-    local titleBar = Instance.new("Frame")
-    titleBar.Name = "TitleBar"
-    titleBar.Size = UDim2.new(1, 0, 0, 34)
-    titleBar.BackgroundColor3 = Color3.fromRGB(20, 25, 45)
-    titleBar.BorderSizePixel = 0
-    titleBar.Parent = mainFrame
-
-    local titleCorner = Instance.new("UICorner", titleBar)
-    titleCorner.CornerRadius = UDim.new(0, 12)
-
-    local titleGradient = Instance.new("UIGradient", titleBar)
-    titleGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 30, 55)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 25, 45)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 20, 35))
-    })
-    titleGradient.Rotation = 90
-
-    local diamondIcon = Instance.new("TextLabel")
-    diamondIcon.Text = "💎"
-    diamondIcon.Size = UDim2.new(0, 20, 0, 20)
-    diamondIcon.Position = UDim2.new(0, 10, 0, 7)
-    diamondIcon.BackgroundTransparency = 1
-    diamondIcon.TextSize = 16
-    diamondIcon.Parent = titleBar
-
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(1, -80, 0, 18)
-    titleLabel.Position = UDim2.new(0, 34, 0, 2)
-    titleLabel.Text = "SIZE PLAYER PRO"
-    titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
-    titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextSize = 11
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Parent = titleBar
-
-    local titleLine = Instance.new("Frame")
-    titleLine.Size = UDim2.new(0.5, 0, 0, 1)
-    titleLine.Position = UDim2.new(0, 34, 0, 22)
-    titleLine.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
-    titleLine.BackgroundTransparency = 0.4
-    titleLine.BorderSizePixel = 0
-    titleLine.Parent = titleBar
-
-    local versionLabel = Instance.new("TextLabel")
-    versionLabel.Size = UDim2.new(0, 70, 0, 10)
-    versionLabel.Position = UDim2.new(0, 34, 0, 24)
-    versionLabel.Text = "PREMIUM v2.0"
-    versionLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
-    versionLabel.Font = Enum.Font.Gotham
-    versionLabel.TextSize = 7
-    versionLabel.BackgroundTransparency = 1
-    versionLabel.TextXAlignment = Enum.TextXAlignment.Left
-    versionLabel.Parent = titleBar
-
-    -- زر التصغير
-    local minimizeBtn = Instance.new("TextButton")
-    minimizeBtn.Text = "−"
-    minimizeBtn.Size = UDim2.new(0, 24, 0, 24)
-    minimizeBtn.Position = UDim2.new(1, -32, 0, 5)
-    minimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 65)
-    minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-    minimizeBtn.Font = Enum.Font.GothamBold
-    minimizeBtn.TextSize = 14
-    minimizeBtn.AutoButtonColor = false
-    minimizeBtn.Parent = titleBar
-
-    Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0, 6)
-
-    minimizeBtn.MouseEnter:Connect(function()
-        TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(60, 70, 100)
-        }):Play()
-    end)
-    minimizeBtn.MouseLeave:Connect(function()
-        TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.fromRGB(40, 45, 65)
-        }):Play()
-    end)
-
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -16, 1, -48)
-    container.Position = UDim2.new(0, 8, 0, 40)
-    container.BackgroundTransparency = 1
-    container.Parent = mainFrame
-
-    local list = Instance.new("UIListLayout", container)
-    list.Padding = UDim.new(0, 6)
-    list.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-    -- ═══════════════════════════════════════════════════════════════
-    --  دالة إنشاء أزرار فاخرة - أصغر
-    -- ═══════════════════════════════════════════════════════════════
-    local function createPremiumButton(text, icon, color, callback)
-        local btnFrame = Instance.new("Frame")
-        btnFrame.Size = UDim2.new(1, 0, 0, 32)
-        btnFrame.BackgroundTransparency = 1
-        btnFrame.Parent = container
-
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 1, 0)
-        btn.BackgroundColor3 = color
-        btn.Text = ""
-        btn.AutoButtonColor = false
-        btn.Parent = btnFrame
-
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
-        local glowStroke = Instance.new("UIStroke", btn)
-        glowStroke.Color = color:Lerp(Color3.new(1,1,1), 0.3)
-        glowStroke.Thickness = 1
-        glowStroke.Transparency = 0.3
-
-        local btnIcon = Instance.new("TextLabel")
-        btnIcon.Text = icon
-        btnIcon.Size = UDim2.new(0, 18, 0, 18)
-        btnIcon.Position = UDim2.new(0, 10, 0.5, -9)
-        btnIcon.BackgroundTransparency = 1
-        btnIcon.TextSize = 14
-        btnIcon.Parent = btn
-
-        local btnText = Instance.new("TextLabel")
-        btnText.Text = text
-        btnText.Size = UDim2.new(1, -36, 1, 0)
-        btnText.Position = UDim2.new(0, 30, 0, 0)
-        btnText.BackgroundTransparency = 1
-        btnText.TextColor3 = Color3.new(1, 1, 1)
-        btnText.Font = Enum.Font.GothamBold
-        btnText.TextSize = 10
-        btnText.TextXAlignment = Enum.TextXAlignment.Left
-        btnText.Parent = btn
-
-        btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.25), {
-                BackgroundColor3 = color:Lerp(Color3.new(1,1,1), 0.15)
-            }):Play()
-            TweenService:Create(glowStroke, TweenInfo.new(0.25), {Transparency = 0}):Play()
-        end)
-
-        btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.25), {BackgroundColor3 = color}):Play()
-            TweenService:Create(glowStroke, TweenInfo.new(0.25), {Transparency = 0.3}):Play()
-        end)
-
-        btn.MouseButton1Down:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.1), {
-                Size = UDim2.new(0.97, 0, 0.92, 0),
-                Position = UDim2.new(0.015, 0, 0.04, 0)
-            }):Play()
-        end)
-
-        btn.MouseButton1Up:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.15), {
-                Size = UDim2.new(1, 0, 1, 0),
-                Position = UDim2.new(0, 0, 0, 0)
-            }):Play()
-        end)
-
-        btn.MouseButton1Click:Connect(callback)
-        return btn
-    end
-
-    -- ═══════════════════════════════════════════════════════════════
-    --  منطقة الإدخال - بدون أيقونة وبدون خط متحرك
-    -- ═══════════════════════════════════════════════════════════════
-    local inputFrame = Instance.new("Frame")
-    inputFrame.Size = UDim2.new(1, 0, 0, 34)
-    inputFrame.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
-    inputFrame.BorderSizePixel = 0
-    inputFrame.Parent = container
-
-    Instance.new("UICorner", inputFrame).CornerRadius = UDim.new(0, 8)
-
-    local inputStroke = Instance.new("UIStroke", inputFrame)
-    inputStroke.Color = Color3.fromRGB(60, 70, 100)
-    inputStroke.Thickness = 1
-    inputStroke.Transparency = 0.4
-
-    local timeInput = Instance.new("TextBox")
-    timeInput.PlaceholderText = "أدخل القيمة (0-99)"
-    timeInput.Text = "0"
-    timeInput.TextColor3 = Color3.fromRGB(0, 220, 255)
-    timeInput.PlaceholderColor3 = Color3.fromRGB(100, 120, 150)
-    timeInput.Font = Enum.Font.Code
-    timeInput.TextSize = 12
-    timeInput.BackgroundTransparency = 1
-    timeInput.ClearTextOnFocus = false
-    timeInput.Size = UDim2.new(1, -16, 0, 26)
-    timeInput.Position = UDim2.new(0, 8, 0.5, -13)
-    timeInput.Parent = inputFrame
-
-    timeInput.Focused:Connect(function()
-        TweenService:Create(inputStroke, TweenInfo.new(0.3), {
-            Color = Color3.fromRGB(0, 180, 255)
-        }):Play()
-    end)
-
-    timeInput.FocusLost:Connect(function()
-        TweenService:Create(inputStroke, TweenInfo.new(0.3), {
-            Color = Color3.fromRGB(60, 70, 100)
-        }):Play()
-
-        local val = tonumber(timeInput.Text)
-        if not val then
-            timeInput.Text = "0"
-            return
-        end
-
-        local convertedVal = math.clamp(val / 100, 0, 0.99)
-        Settings["Time Position"] = convertedVal
-        timeInput.Text = tostring(val)
-
-        if CurrentTrack and CurrentTrack.IsPlaying then
-            CurrentTrack.TimePosition = convertedVal * CurrentTrack.Length
-        end
-    end)
-
-    -- ═══════════════════════════════════════════════════════════════
-    --  الوظائف الأساسية (لم تتغير)
-    -- ═══════════════════════════════════════════════════════════════
-    local function LoadTrack()
-        if CurrentTrack then CurrentTrack:Stop(0) end
-        local anim = Instance.new("Animation")
-        anim.AnimationId = "rbxassetid://" .. emoteId
-
-        pcall(function()
-            local objs = game:GetObjects(anim.AnimationId)
-            if objs and #objs > 0 and objs[1]:IsA("Animation") then
-                anim.AnimationId = objs[1].AnimationId
-            end
-        end)
-
-        local success, track = pcall(function() return humanoid:LoadAnimation(anim) end)
-        if success and track then
-            CurrentTrack = track
-            CurrentTrack.Priority = Enum.AnimationPriority.Action4
-            CurrentTrack:Play(0.1, Settings.Weight, 0)
-            CurrentTrack.TimePosition = Settings["Time Position"] * CurrentTrack.Length
-        end
-    end
-
-    createPremiumButton("تشغيل الحجم", "▶", Color3.fromRGB(0, 140, 230), LoadTrack)
-    createPremiumButton("إيقاف الحجم", "■", Color3.fromRGB(200, 50, 80), function()
-        if CurrentTrack then CurrentTrack:Stop(0.1) end
-    end)
-    createPremiumButton("وضع السكن المطلوب", "👕", Color3.fromRGB(130, 50, 200), function()
-        sendHDCommand("char me a7mro_123")
-    end)
-
-    -- ═══════════════════════════════════════════════════════════════
-    --  السحب والتصغير
-    -- ═══════════════════════════════════════════════════════════════
-    local dragging, dragStart, startPos
-    titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = mainFrame.Position
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            mainFrame.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-    end)
-
-    local isMinimized = false
-    minimizeBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if isMinimized then
-            TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {
-                Size = UDim2.new(0, 220, 0, 34)
-            }):Play()
-            container.Visible = false
-            minimizeBtn.Text = "+"
-        else
-            TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 220, 0, 200)
-            }):Play()
-            task.wait(0.2)
-            container.Visible = true
-            minimizeBtn.Text = "−"
-        end
-    end)
-
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if not gp and input.KeyCode == Enum.KeyCode.C then
-            mainFrame.Visible = not mainFrame.Visible
-        end
-    end)
-
-    mainFrame.Size = UDim2.new(0, 220, 0, 0)
-    mainFrame.BackgroundTransparency = 1
-    outerStroke.Transparency = 1
-
-    TweenService:Create(mainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 220, 0, 200),
-        BackgroundTransparency = 0
-    }):Play()
-    TweenService:Create(outerStroke, TweenInfo.new(0.8), {Transparency = 0.15}):Play()
-
-    task.wait(0.5)
-    LoadTrack()
-
+if not HasPermission() then
     StarterGui:SetCore("SendNotification", {
-        Title = "💎 SIZE PLAYER PRO",
-        Text = "تم تحميل تغير الحجم ",
+        Title = "🔒 مقفل",
+        Text = "ليس لديك صلاحية لهذا السكربت",
         Duration = 3
     })
+    return -- ⛔ يوقف السكربت بالكامل
+end
+-- ═══════════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = newCharacter:WaitForChild("Humanoid")
+end)
+
+-- ═══════════════════════════════════════════════════════════════════
+-- دوال مساعدة
+-- ═══════════════════════════════════════════════════════════════════
+local function sendHDCommand(cmd)
+    task.spawn(function()
+        local hdSignals = ReplicatedStorage:FindFirstChild("HDAdminHDClient")
+        if hdSignals then
+            hdSignals = hdSignals:FindFirstChild("Signals")
+        end
+        local remote = hdSignals and hdSignals:FindFirstChild("RequestCommandSilent")
+        if remote then
+            remote:InvokeServer("." .. cmd)
+        else
+            local chatEvent = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+            if chatEvent then
+                chatEvent = chatEvent:FindFirstChild("SayMessageRequest")
+                if chatEvent then
+                    chatEvent:FireServer("." .. cmd, "All")
+                end
+            end
+        end
+    end)
 end
 
-LoadSizeScript()
+-- ═══════════════════════════════════════════════════════════════════
+-- PART 6: سكربت الحجم (SIZE PLAYER PRO) - كامل
+-- ═══════════════════════════════════════════════════════════════════
+
+local function missing(t, f, fallback)
+    if type(f) == t then return f end
+    return fallback
+end
+
+cloneref = missing("function", cloneref, function(...) return ... end)
+
+local Services = setmetatable({}, {
+    __index = function(_, name)
+        return cloneref(game:GetService(name))
+    end
+})
+
+local Settings = {
+    ["Weight"] = 1,
+    ["Time Position"] = 0
+}
+local CurrentTrack = nil
+local emoteId = "93224413172183"
+
+-- ═══════════════════════════════════════════════════════════════
+--  الواجهة الفاخرة - Compact Premium Edition
+-- ═══════════════════════════════════════════════════════════════
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "EliteEmoteUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = (gethui and gethui()) or game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
+
+-- الإطار الرئيسي - أصغر
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 220, 0, 200)
+mainFrame.Position = UDim2.new(0.5, -110, 0.5, -100)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 22)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner", mainFrame)
+mainCorner.CornerRadius = UDim.new(0, 12)
+
+local outerStroke = Instance.new("UIStroke", mainFrame)
+outerStroke.Color = Color3.fromRGB(0, 180, 255)
+outerStroke.Thickness = 1.2
+outerStroke.Transparency = 0.15
+
+local bgGradient = Instance.new("UIGradient", mainFrame)
+bgGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 30)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 40)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 12, 25))
+})
+bgGradient.Rotation = 135
+
+-- شريط العنوان - أصغر
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.BackgroundColor3 = Color3.fromRGB(20, 25, 45)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner", titleBar)
+titleCorner.CornerRadius = UDim.new(0, 12)
+
+local titleGradient = Instance.new("UIGradient", titleBar)
+titleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 30, 55)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 25, 45)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 20, 35))
+})
+titleGradient.Rotation = 90
+
+local diamondIcon = Instance.new("TextLabel")
+diamondIcon.Text = "💎"
+diamondIcon.Size = UDim2.new(0, 20, 0, 20)
+diamondIcon.Position = UDim2.new(0, 10, 0, 7)
+diamondIcon.BackgroundTransparency = 1
+diamondIcon.TextSize = 16
+diamondIcon.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -80, 0, 18)
+titleLabel.Position = UDim2.new(0, 34, 0, 2)
+titleLabel.Text = "SIZE PLAYER PRO"
+titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 11
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+local titleLine = Instance.new("Frame")
+titleLine.Size = UDim2.new(0.5, 0, 0, 1)
+titleLine.Position = UDim2.new(0, 34, 0, 22)
+titleLine.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+titleLine.BackgroundTransparency = 0.4
+titleLine.BorderSizePixel = 0
+titleLine.Parent = titleBar
+
+local versionLabel = Instance.new("TextLabel")
+versionLabel.Size = UDim2.new(0, 70, 0, 10)
+versionLabel.Position = UDim2.new(0, 34, 0, 24)
+versionLabel.Text = "PREMIUM v2.0"
+versionLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+versionLabel.Font = Enum.Font.Gotham
+versionLabel.TextSize = 7
+versionLabel.BackgroundTransparency = 1
+versionLabel.TextXAlignment = Enum.TextXAlignment.Left
+versionLabel.Parent = titleBar
+
+-- زر التصغير
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Text = "−"
+minimizeBtn.Size = UDim2.new(0, 24, 0, 24)
+minimizeBtn.Position = UDim2.new(1, -32, 0, 5)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 65)
+minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 14
+minimizeBtn.AutoButtonColor = false
+minimizeBtn.Parent = titleBar
+
+Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0, 6)
+
+minimizeBtn.MouseEnter:Connect(function()
+    TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(60, 70, 100)
+    }):Play()
+end)
+minimizeBtn.MouseLeave:Connect(function()
+    TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(40, 45, 65)
+    }):Play()
+end)
+
+local container = Instance.new("Frame")
+container.Size = UDim2.new(1, -16, 1, -48)
+container.Position = UDim2.new(0, 8, 0, 40)
+container.BackgroundTransparency = 1
+container.Parent = mainFrame
+
+local list = Instance.new("UIListLayout", container)
+list.Padding = UDim.new(0, 6)
+list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+-- ═══════════════════════════════════════════════════════════════
+--  دالة إنشاء أزرار فاخرة - أصغر
+-- ═══════════════════════════════════════════════════════════════
+local function createPremiumButton(text, icon, color, callback)
+    local btnFrame = Instance.new("Frame")
+    btnFrame.Size = UDim2.new(1, 0, 0, 32)
+    btnFrame.BackgroundTransparency = 1
+    btnFrame.Parent = container
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 1, 0)
+    btn.BackgroundColor3 = color
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Parent = btnFrame
+
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    local glowStroke = Instance.new("UIStroke", btn)
+    glowStroke.Color = color:Lerp(Color3.new(1,1,1), 0.3)
+    glowStroke.Thickness = 1
+    glowStroke.Transparency = 0.3
+
+    local btnIcon = Instance.new("TextLabel")
+    btnIcon.Text = icon
+    btnIcon.Size = UDim2.new(0, 18, 0, 18)
+    btnIcon.Position = UDim2.new(0, 10, 0.5, -9)
+    btnIcon.BackgroundTransparency = 1
+    btnIcon.TextSize = 14
+    btnIcon.Parent = btn
+
+    local btnText = Instance.new("TextLabel")
+    btnText.Text = text
+    btnText.Size = UDim2.new(1, -36, 1, 0)
+    btnText.Position = UDim2.new(0, 30, 0, 0)
+    btnText.BackgroundTransparency = 1
+    btnText.TextColor3 = Color3.new(1, 1, 1)
+    btnText.Font = Enum.Font.GothamBold
+    btnText.TextSize = 10
+    btnText.TextXAlignment = Enum.TextXAlignment.Left
+    btnText.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.25), {
+            BackgroundColor3 = color:Lerp(Color3.new(1,1,1), 0.15)
+        }):Play()
+        TweenService:Create(glowStroke, TweenInfo.new(0.25), {Transparency = 0}):Play()
+    end)
+
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.25), {BackgroundColor3 = color}):Play()
+        TweenService:Create(glowStroke, TweenInfo.new(0.25), {Transparency = 0.3}):Play()
+    end)
+
+    btn.MouseButton1Down:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {
+            Size = UDim2.new(0.97, 0, 0.92, 0),
+            Position = UDim2.new(0.015, 0, 0.04, 0)
+        }):Play()
+    end)
+
+    btn.MouseButton1Up:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15), {
+            Size = UDim2.new(1, 0, 1, 0),
+            Position = UDim2.new(0, 0, 0, 0)
+        }):Play()
+    end)
+
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
+
+-- ═══════════════════════════════════════════════════════════════
+--  منطقة الإدخال - بدون أيقونة وبدون خط متحرك
+-- ═══════════════════════════════════════════════════════════════
+local inputFrame = Instance.new("Frame")
+inputFrame.Size = UDim2.new(1, 0, 0, 34)
+inputFrame.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
+inputFrame.BorderSizePixel = 0
+inputFrame.Parent = container
+
+Instance.new("UICorner", inputFrame).CornerRadius = UDim.new(0, 8)
+
+local inputStroke = Instance.new("UIStroke", inputFrame)
+inputStroke.Color = Color3.fromRGB(60, 70, 100)
+inputStroke.Thickness = 1
+inputStroke.Transparency = 0.4
+
+local timeInput = Instance.new("TextBox")
+timeInput.PlaceholderText = "أدخل القيمة (0-99)"
+timeInput.Text = "0"
+timeInput.TextColor3 = Color3.fromRGB(0, 220, 255)
+timeInput.PlaceholderColor3 = Color3.fromRGB(100, 120, 150)
+timeInput.Font = Enum.Font.Code
+timeInput.TextSize = 12
+timeInput.BackgroundTransparency = 1
+timeInput.ClearTextOnFocus = false
+timeInput.Size = UDim2.new(1, -16, 0, 26)
+timeInput.Position = UDim2.new(0, 8, 0.5, -13)
+timeInput.Parent = inputFrame
+
+timeInput.Focused:Connect(function()
+    TweenService:Create(inputStroke, TweenInfo.new(0.3), {
+        Color = Color3.fromRGB(0, 180, 255)
+    }):Play()
+end)
+
+timeInput.FocusLost:Connect(function()
+    TweenService:Create(inputStroke, TweenInfo.new(0.3), {
+        Color = Color3.fromRGB(60, 70, 100)
+    }):Play()
+
+    local val = tonumber(timeInput.Text)
+    if not val then
+        timeInput.Text = "0"
+        return
+    end
+
+    local convertedVal = math.clamp(val / 100, 0, 0.99)
+    Settings["Time Position"] = convertedVal
+    timeInput.Text = tostring(val)
+
+    if CurrentTrack and CurrentTrack.IsPlaying then
+        CurrentTrack.TimePosition = convertedVal * CurrentTrack.Length
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+--  الوظائف الأساسية (لم تتغير)
+-- ═══════════════════════════════════════════════════════════════
+local function LoadTrack()
+    if CurrentTrack then CurrentTrack:Stop(0) end
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. emoteId
+
+    pcall(function()
+        local objs = game:GetObjects(anim.AnimationId)
+        if objs and #objs > 0 and objs[1]:IsA("Animation") then
+            anim.AnimationId = objs[1].AnimationId
+        end
+    end)
+
+    local success, track = pcall(function() return humanoid:LoadAnimation(anim) end)
+    if success and track then
+        CurrentTrack = track
+        CurrentTrack.Priority = Enum.AnimationPriority.Action4
+        CurrentTrack:Play(0.1, Settings.Weight, 0)
+        CurrentTrack.TimePosition = Settings["Time Position"] * CurrentTrack.Length
+    end
+end
+
+createPremiumButton("تشغيل الحجم", "▶", Color3.fromRGB(0, 140, 230), LoadTrack)
+createPremiumButton("إيقاف الحجم", "■", Color3.fromRGB(200, 50, 80), function()
+    if CurrentTrack then CurrentTrack:Stop(0.1) end
+end)
+createPremiumButton("وضع السكن المطلوب", "👕", Color3.fromRGB(130, 50, 200), function()
+    sendHDCommand("char me a7mro_123")
+end)
+
+-- ═══════════════════════════════════════════════════════════════
+--  السحب والتصغير
+-- ═══════════════════════════════════════════════════════════════
+local dragging, dragStart, startPos
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+local isMinimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 220, 0, 34)
+        }):Play()
+        container.Visible = false
+        minimizeBtn.Text = "+"
+    else
+        TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 220, 0, 200)
+        }):Play()
+        task.wait(0.2)
+        container.Visible = true
+        minimizeBtn.Text = "−"
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Enum.KeyCode.C then
+        mainFrame.Visible = not mainFrame.Visible
+    end
+end)
+
+mainFrame.Size = UDim2.new(0, 220, 0, 0)
+mainFrame.BackgroundTransparency = 1
+outerStroke.Transparency = 1
+
+TweenService:Create(mainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 220, 0, 200),
+    BackgroundTransparency = 0
+}):Play()
+TweenService:Create(outerStroke, TweenInfo.new(0.8), {Transparency = 0.15}):Play()
+
+task.wait(0.5)
+LoadTrack()
+
+StarterGui:SetCore("SendNotification", {
+    Title = "💎 SIZE PLAYER PRO",
+    Text = "تم تحميل تغير الحجم ",
+    Duration = 3
+})
