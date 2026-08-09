@@ -1,0 +1,786 @@
+local function LoadChatScript()
+    local MY_URLS = {
+        "https://chat-fo9q.onrender.com",
+        "https://chat-delta-gules.vercel.app"
+    }
+    local currentUrlIndex = 1
+
+    local Players = game:GetService("Players")
+    local HttpService = game:GetService("HttpService")
+    local RunService = game:GetService("RunService")
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local TweenService = game:GetService("TweenService")
+    local TeleportService = game:GetService("TeleportService")
+    local StarterGui = game:GetService("StarterGui")
+
+    local player = Players.LocalPlayer
+    local lastMessageIds = {}
+    local isUserScrolling = false
+    local scrollThreshold = 20
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- دوال الاتصال
+    -- ═══════════════════════════════════════════════════════════════════
+    local function getActiveUrl()
+        return MY_URLS[currentUrlIndex]
+    end
+
+    local function switchToNextUrl()
+        currentUrlIndex = currentUrlIndex + 1
+        if currentUrlIndex > #MY_URLS then
+            currentUrlIndex = 1
+        end
+        
+    end
+
+    local function sendRequest(url, method, body)
+        local requestFunc = syn and syn.request or http_request or request or (http and http.request)
+        if requestFunc then
+            return requestFunc({
+                Url = url,
+                Method = method,
+                Headers = {["Content-Type"] = "application/json"},
+                Body = body
+            })
+        end
+        return nil
+    end
+
+    local function safeRequest(url, method, body)
+        local success, response = pcall(function()
+            return sendRequest(url, method, body)
+        end)
+        
+        if not success or not response then
+            return nil
+        end
+        
+        if response.StatusCode and (response.StatusCode >= 500 or response.StatusCode == 0) then
+            return nil
+        end
+        
+        return response
+    end
+
+    local function tryRequest(endpoint, method, body)
+        local attempts = 0
+        local maxAttempts = #MY_URLS
+        
+        while attempts < maxAttempts do
+            local url = getActiveUrl() .. endpoint
+            local response = safeRequest(url, method, body)
+            
+            if response then
+                return response
+            end
+            
+            switchToNextUrl()
+            attempts = attempts + 1
+        end
+        
+        return nil
+    end
+
+    local function pingServer()
+        local payload = HttpService:JSONEncode({
+            userId = player.UserId,
+            username = player.Name
+        })
+        task.spawn(function()
+            tryRequest("/ping", "POST", payload)
+        end)
+    end
+
+    -- Ping كل 5 ثواني
+    task.spawn(function()
+        while true do
+            pingServer()
+            task.wait(5)
+        end
+    end)
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- معلومات السيرفر
+    -- ═══════════════════════════════════════════════════════════════════
+    local function getCurrentServerInfo()
+        local jobId = game.JobId
+        local placeId = game.PlaceId
+        local playerCount = #Players:GetPlayers()
+        local maxPlayers = 50
+        local gameName = "لعبة غير معروفة"
+
+        local success, productInfo = pcall(function()
+            return MarketplaceService:GetProductInfo(placeId)
+        end)
+
+        if success and productInfo then
+            gameName = productInfo.Name
+        end
+
+        return {
+            jobId = jobId,
+            placeId = placeId,
+            playerCount = playerCount,
+            maxPlayers = maxPlayers,
+            gameName = gameName
+        }
+    end
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- بناء الواجهة الأنحف
+    -- ═══════════════════════════════════════════════════════════════════
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "HulmGlobalChatSlim"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = player:WaitForChild("PlayerGui")
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- الإطار الرئيسي (أنحف بكثير)
+    -- ═══════════════════════════════════════════════════════════════════
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 260, 0, 400)
+    MainFrame.Position = UDim2.new(0.5, -130, 0.5, -200)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+    MainFrame.BackgroundTransparency = 0.06
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.ClipsDescendants = true
+    MainFrame.Parent = ScreenGui
+
+    local MainCorner = Instance.new("UICorner", MainFrame)
+    MainCorner.CornerRadius = UDim.new(0, 14)
+
+    local MainStroke = Instance.new("UIStroke", MainFrame)
+    MainStroke.Color = Color3.fromRGB(0, 180, 255)
+    MainStroke.Thickness = 1.5
+    MainStroke.Transparency = 0.25
+
+    local MainGradient = Instance.new("UIGradient", MainFrame)
+    MainGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 25)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(22, 22, 38)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 25))
+    })
+    MainGradient.Rotation = 45
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- شريط العنوان المدمج (أصغر)
+    -- ═══════════════════════════════════════════════════════════════════
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Name = "TitleBar"
+    TitleBar.Size = UDim2.new(1, 0, 0, 36)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    TitleBar.BackgroundTransparency = 0.2
+    TitleBar.BorderSizePixel = 0
+    TitleBar.Parent = MainFrame
+
+    local TitleCorner = Instance.new("UICorner", TitleBar)
+    TitleCorner.CornerRadius = UDim.new(0, 14)
+
+    local TitleGradient = Instance.new("UIGradient", TitleBar)
+    TitleGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 35, 60)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 40))
+    })
+    TitleGradient.Rotation = 90
+
+    -- أيقونة + عنوان في سطر واحد
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Text = "💬 HULM CHAT"
+    TitleLabel.Size = UDim2.new(1, -80, 0, 20)
+    TitleLabel.Position = UDim2.new(0, 12, 0, 8)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
+    TitleLabel.Font = Enum.Font.GothamBold
+    TitleLabel.TextSize = 13
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Parent = TitleBar
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- عداد المتصلين المدمج (أصغر)
+    -- ═══════════════════════════════════════════════════════════════════
+    local OnlineCounter = Instance.new("Frame")
+    OnlineCounter.Name = "OnlineCounter"
+    OnlineCounter.Size = UDim2.new(0, 70, 0, 20)
+    OnlineCounter.Position = UDim2.new(0, 10, 0, 42)
+    OnlineCounter.BackgroundColor3 = Color3.fromRGB(30, 100, 50)
+    OnlineCounter.BackgroundTransparency = 0.15
+    OnlineCounter.Parent = MainFrame
+
+    local CounterCorner = Instance.new("UICorner", OnlineCounter)
+    CounterCorner.CornerRadius = UDim.new(0, 10)
+
+    local CounterStroke = Instance.new("UIStroke", OnlineCounter)
+    CounterStroke.Color = Color3.fromRGB(50, 200, 100)
+    CounterStroke.Thickness = 1
+    CounterStroke.Transparency = 0.3
+
+    local PulseDot = Instance.new("Frame")
+    PulseDot.Size = UDim2.new(0, 7, 0, 7)
+    PulseDot.Position = UDim2.new(0, 6, 0.5, -3)
+    PulseDot.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+    PulseDot.BorderSizePixel = 0
+    Instance.new("UICorner", PulseDot).CornerRadius = UDim.new(1, 0)
+    PulseDot.Parent = OnlineCounter
+
+    -- أنيميشن نبض
+    local pulseTween = TweenService:Create(PulseDot, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+        Size = UDim2.new(0, 10, 0, 10),
+        Position = UDim2.new(0, 4, 0.5, -5)
+    })
+    pulseTween:Play()
+
+    local CounterText = Instance.new("TextLabel")
+    CounterText.Name = "CounterText"
+    CounterText.Size = UDim2.new(1, -20, 1, 0)
+    CounterText.Position = UDim2.new(0, 18, 0, 0)
+    CounterText.Text = "0 متصل"
+    CounterText.TextColor3 = Color3.new(1, 1, 1)
+    CounterText.BackgroundTransparency = 1
+    CounterText.Font = Enum.Font.GothamSemibold
+    CounterText.TextSize = 10
+    CounterText.TextXAlignment = Enum.TextXAlignment.Left
+    CounterText.Parent = OnlineCounter
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- منطقة الرسائل (أنحف)
+    -- ═══════════════════════════════════════════════════════════════════
+    local MessageContainer = Instance.new("ScrollingFrame")
+    MessageContainer.Name = "MessageContainer"
+    MessageContainer.Size = UDim2.new(0.94, 0, 0, 230)
+    MessageContainer.Position = UDim2.new(0.03, 0, 0, 68)
+    MessageContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    MessageContainer.BackgroundTransparency = 0.3
+    MessageContainer.ScrollBarThickness = 5
+    MessageContainer.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+    MessageContainer.BorderSizePixel = 0
+    MessageContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    MessageContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    MessageContainer.ElasticBehavior = Enum.ElasticBehavior.Always
+    MessageContainer.Parent = MainFrame
+
+    local MsgCorner = Instance.new("UICorner", MessageContainer)
+    MsgCorner.CornerRadius = UDim.new(0, 10)
+
+    local MsgStroke = Instance.new("UIStroke", MessageContainer)
+    MsgStroke.Color = Color3.fromRGB(50, 50, 80)
+    MsgStroke.Thickness = 1
+    MsgStroke.Transparency = 0.5
+
+    local MsgPadding = Instance.new("UIPadding", MessageContainer)
+    MsgPadding.PaddingTop = UDim.new(0, 6)
+    MsgPadding.PaddingLeft = UDim.new(0, 6)
+    MsgPadding.PaddingRight = UDim.new(0, 6)
+    MsgPadding.PaddingBottom = UDim.new(0, 6)
+
+    local MsgLayout = Instance.new("UIListLayout", MessageContainer)
+    MsgLayout.Padding = UDim.new(0, 5)
+    MsgLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    MsgLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- منطقة الإدخال (أصغر)
+    -- ═══════════════════════════════════════════════════════════════════
+    local InputFrame = Instance.new("Frame")
+    InputFrame.Name = "InputFrame"
+    InputFrame.Size = UDim2.new(0.94, 0, 0, 90)
+    InputFrame.Position = UDim2.new(0.03, 0, 0, 306)
+    InputFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
+    InputFrame.BackgroundTransparency = 0.2
+    InputFrame.BorderSizePixel = 0
+    InputFrame.Parent = MainFrame
+
+    local InputCorner = Instance.new("UICorner", InputFrame)
+    InputCorner.CornerRadius = UDim.new(0, 10)
+
+    local InputStroke = Instance.new("UIStroke", InputFrame)
+    InputStroke.Color = Color3.fromRGB(60, 60, 90)
+    InputStroke.Thickness = 1
+    InputStroke.Transparency = 0.4
+
+    -- مربع النص
+    local InputBox = Instance.new("TextBox")
+    InputBox.Name = "InputBox"
+    InputBox.Size = UDim2.new(0.92, 0, 0, 32)
+    InputBox.Position = UDim2.new(0.04, 0, 0, 6)
+    InputBox.PlaceholderText = "اكتب رسالتك..."
+    InputBox.Text = ""
+    InputBox.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+    InputBox.TextColor3 = Color3.new(1, 1, 1)
+    InputBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
+    InputBox.Font = Enum.Font.Gotham
+    InputBox.TextSize = 12
+    InputBox.ClearTextOnFocus = false
+    InputBox.BorderSizePixel = 0
+    InputBox.Parent = InputFrame
+
+    local InputBoxCorner = Instance.new("UICorner", InputBox)
+    InputBoxCorner.CornerRadius = UDim.new(0, 8)
+
+    local InputBoxStroke = Instance.new("UIStroke", InputBox)
+    InputBoxStroke.Color = Color3.fromRGB(60, 60, 90)
+    InputBoxStroke.Thickness = 1
+    InputBoxStroke.Transparency = 0.5
+
+    -- زر الإرسال (أصغر)
+    local SendButton = Instance.new("TextButton")
+    SendButton.Name = "SendButton"
+    SendButton.Size = UDim2.new(0.45, 0, 0, 30)
+    SendButton.Position = UDim2.new(0.04, 0, 0, 46)
+    SendButton.Text = "📨 إرسال"
+    SendButton.TextColor3 = Color3.new(1, 1, 1)
+    SendButton.BackgroundColor3 = Color3.fromRGB(0, 120, 220)
+    SendButton.Font = Enum.Font.GothamBold
+    SendButton.TextSize = 11
+    SendButton.AutoButtonColor = false
+    SendButton.Parent = InputFrame
+
+    local SendCorner = Instance.new("UICorner", SendButton)
+    SendCorner.CornerRadius = UDim.new(0, 8)
+
+    -- زر الفزعة (أصغر)
+    local HelpButton = Instance.new("TextButton")
+    HelpButton.Name = "HelpButton"
+    HelpButton.Size = UDim2.new(0.45, 0, 0, 30)
+    HelpButton.Position = UDim2.new(0.51, 0, 0, 46)
+    HelpButton.Text = "🆘 فزعة"
+    HelpButton.TextColor3 = Color3.new(1, 1, 1)
+    HelpButton.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+    HelpButton.Font = Enum.Font.GothamBold
+    HelpButton.TextSize = 11
+    HelpButton.AutoButtonColor = false
+    HelpButton.Parent = InputFrame
+
+    local HelpCorner = Instance.new("UICorner", HelpButton)
+    HelpCorner.CornerRadius = UDim.new(0, 8)
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- أزرار التحكم (تصغير + إغلاق)
+    -- ═══════════════════════════════════════════════════════════════════
+    local MinimizeBtn = Instance.new("TextButton")
+    MinimizeBtn.Text = "−"
+    MinimizeBtn.Size = UDim2.new(0, 26, 0, 26)
+    MinimizeBtn.Position = UDim2.new(1, -35, 0.5, -13)
+    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+    MinimizeBtn.Font = Enum.Font.GothamBold
+    MinimizeBtn.TextSize = 16
+    MinimizeBtn.AutoButtonColor = false
+    Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
+    MinimizeBtn.Parent = TitleBar
+
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- تأثيرات Hover
+    -- ═══════════════════════════════════════════════════════════════════
+    local function addHoverEffect(button, originalColor, hoverColor)
+        button.MouseEnter:Connect(function()
+            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = hoverColor}):Play()
+        end)
+        button.MouseLeave:Connect(function()
+            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
+        end)
+    end
+
+    addHoverEffect(SendButton, Color3.fromRGB(0, 120, 220), Color3.fromRGB(0, 150, 255))
+    addHoverEffect(HelpButton, Color3.fromRGB(220, 60, 60), Color3.fromRGB(255, 80, 80))
+    addHoverEffect(MinimizeBtn, Color3.fromRGB(60, 60, 80), Color3.fromRGB(80, 80, 100))
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- دوال الرسائل (مُحسّنة للعرض الأنحف)
+    -- ═══════════════════════════════════════════════════════════════════
+    local function isAtBottom()
+        local currentY = MessageContainer.CanvasPosition.Y
+        local maxY = math.max(0, MessageContainer.CanvasSize.Y.Offset - MessageContainer.AbsoluteSize.Y)
+        return currentY >= maxY - scrollThreshold
+    end
+
+    local function scrollToBottom()
+        RunService.RenderStepped:Wait()
+        MessageContainer.CanvasPosition = Vector2.new(0, 999999)
+    end
+
+    -- رسالة عادية (مُحسّنة)
+    local function addNormalMessage(sender, message, isOwnMessage, msgId)
+        if lastMessageIds[msgId] then return end
+        lastMessageIds[msgId] = true
+
+        local container = Instance.new("Frame")
+        container.Name = "Msg_" .. tostring(msgId)
+        container.Size = UDim2.new(0.98, 0, 0, 0)
+        container.BackgroundTransparency = 1
+        container.AutomaticSize = Enum.AutomaticSize.Y
+        container.LayoutOrder = #MessageContainer:GetChildren()
+        container.Parent = MessageContainer
+
+        local bubble = Instance.new("Frame")
+        bubble.Size = UDim2.new(1, 0, 0, 0)
+        bubble.BackgroundColor3 = isOwnMessage and Color3.fromRGB(0, 100, 200) or Color3.fromRGB(45, 45, 65)
+        bubble.AutomaticSize = Enum.AutomaticSize.Y
+        bubble.BorderSizePixel = 0
+        bubble.Parent = container
+
+        local bubbleCorner = Instance.new("UICorner", bubble)
+        bubbleCorner.CornerRadius = UDim.new(0, 8)
+
+        if isOwnMessage then
+            local bubbleStroke = Instance.new("UIStroke", bubble)
+            bubbleStroke.Color = Color3.fromRGB(0, 150, 255)
+            bubbleStroke.Thickness = 1
+            bubbleStroke.Transparency = 0.4
+        end
+
+        local bubblePad = Instance.new("UIPadding", bubble)
+        bubblePad.PaddingTop = UDim.new(0, 6)
+        bubblePad.PaddingBottom = UDim.new(0, 6)
+        bubblePad.PaddingLeft = UDim.new(0, 8)
+        bubblePad.PaddingRight = UDim.new(0, 8)
+
+        local senderLabel = Instance.new("TextLabel")
+        senderLabel.Size = UDim2.new(1, 0, 0, 13)
+        senderLabel.Text = sender
+        senderLabel.TextColor3 = isOwnMessage and Color3.fromRGB(180, 230, 255) or Color3.fromRGB(255, 200, 100)
+        senderLabel.BackgroundTransparency = 1
+        senderLabel.Font = Enum.Font.GothamBold
+        senderLabel.TextSize = 10
+        senderLabel.TextXAlignment = Enum.TextXAlignment.Left
+        senderLabel.Parent = bubble
+
+        local msgLabel = Instance.new("TextLabel")
+        msgLabel.Size = UDim2.new(1, 0, 0, 0)
+        msgLabel.Position = UDim2.new(0, 0, 0, 15)
+        msgLabel.Text = message
+        msgLabel.TextColor3 = Color3.new(1, 1, 1)
+        msgLabel.BackgroundTransparency = 1
+        msgLabel.Font = Enum.Font.Gotham
+        msgLabel.TextSize = 11
+        msgLabel.TextWrapped = true
+        msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+        msgLabel.AutomaticSize = Enum.AutomaticSize.Y
+        msgLabel.Parent = bubble
+
+        -- أنيميشن دخول
+        bubble.BackgroundTransparency = 1
+        for _, child in pairs(bubble:GetDescendants()) do
+            if child:IsA("TextLabel") then child.TextTransparency = 1 end
+        end
+
+        task.delay(0.05, function()
+            TweenService:Create(bubble, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
+            for _, child in pairs(bubble:GetDescendants()) do
+                if child:IsA("TextLabel") then
+                    TweenService:Create(child, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
+                end
+            end
+        end)
+
+        if isOwnMessage or isAtBottom() then
+            task.defer(scrollToBottom)
+        end
+    end
+
+    -- رسالة فزعة (مُحسّنة للعرض الأنحف)
+    local function addHelpRequestMessage(data, msgId)
+        if lastMessageIds[msgId] then return end
+        lastMessageIds[msgId] = true
+
+        local container = Instance.new("Frame")
+        container.Name = "Help_" .. tostring(msgId)
+        container.Size = UDim2.new(0.98, 0, 0, 80)
+        container.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        container.BorderSizePixel = 0
+        container.LayoutOrder = #MessageContainer:GetChildren()
+        container.Parent = MessageContainer
+
+        local cCorner = Instance.new("UICorner", container)
+        cCorner.CornerRadius = UDim.new(0, 10)
+
+        local cStroke = Instance.new("UIStroke", container)
+        cStroke.Color = Color3.fromRGB(0, 170, 255)
+        cStroke.Thickness = 1.2
+        cStroke.Transparency = 0.3
+
+        -- الشريط الجانبي
+        local sideBar = Instance.new("Frame")
+        sideBar.Size = UDim2.new(0, 3, 0.6, 0)
+        sideBar.Position = UDim2.new(0, 0, 0.2, 0)
+        sideBar.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+        sideBar.BorderSizePixel = 0
+        sideBar.Parent = container
+        Instance.new("UICorner", sideBar).CornerRadius = UDim.new(0, 2)
+
+        -- صورة اللاعب (أصغر)
+        local playerImg = Instance.new("ImageLabel")
+        playerImg.Size = UDim2.new(0, 36, 0, 36)
+        playerImg.Position = UDim2.new(0, 10, 0.5, -18)
+        playerImg.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+        playerImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. (data.userId or 0) .. "&w=150&h=150"
+        playerImg.ScaleType = Enum.ScaleType.Fit
+        playerImg.Parent = container
+        Instance.new("UICorner", playerImg).CornerRadius = UDim.new(1, 0)
+
+        -- صورة اللعبة (أصغر)
+        local gameImg = Instance.new("ImageLabel")
+        gameImg.Size = UDim2.new(0, 16, 0, 16)
+        gameImg.Position = UDim2.new(0, 32, 0.5, 10)
+        gameImg.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        gameImg.Image = "rbxthumb://type=GameIcon&id=" .. (data.placeId or 0) .. "&w=150&h=150"
+        gameImg.Parent = container
+        Instance.new("UICorner", gameImg).CornerRadius = UDim.new(0, 3)
+
+        -- الاسم
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(0.4, 0, 0, 14)
+        nameLabel.Position = UDim2.new(0, 52, 0, 8)
+        nameLabel.Text = data.username or "Unknown"
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 11
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = container
+
+        -- اسم اللعبة
+        local gameLabel = Instance.new("TextLabel")
+        gameLabel.Size = UDim2.new(0.5, 0, 0, 12)
+        gameLabel.Position = UDim2.new(0, 52, 0, 22)
+        gameLabel.Text = "🎮 " .. (data.gameName or "لعبة")
+        gameLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+        gameLabel.BackgroundTransparency = 1
+        gameLabel.Font = Enum.Font.Gotham
+        gameLabel.TextSize = 9
+        gameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        gameLabel.Parent = container
+
+        -- عدد اللاعبين
+        local countLabel = Instance.new("TextLabel")
+        countLabel.Size = UDim2.new(0.5, 0, 0, 12)
+        countLabel.Position = UDim2.new(0, 52, 0, 34)
+        countLabel.Text = "👥 " .. (data.playerCount or 0) .. "/" .. (data.maxPlayers or 50)
+        countLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        countLabel.BackgroundTransparency = 1
+        countLabel.Font = Enum.Font.Gotham
+        countLabel.TextSize = 9
+        countLabel.TextXAlignment = Enum.TextXAlignment.Left
+        countLabel.Parent = container
+
+        -- زر الانضمام (أصغر)
+        local joinBtn = Instance.new("TextButton")
+        joinBtn.Size = UDim2.new(0, 60, 0, 26)
+        joinBtn.Position = UDim2.new(1, -72, 0.5, -13)
+        joinBtn.Text = "انضم"
+        joinBtn.TextColor3 = Color3.new(1, 1, 1)
+        joinBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
+        joinBtn.Font = Enum.Font.GothamBold
+        joinBtn.TextSize = 11
+        joinBtn.AutoButtonColor = false
+        joinBtn.Parent = container
+        Instance.new("UICorner", joinBtn).CornerRadius = UDim.new(0, 13)
+
+        addHoverEffect(joinBtn, Color3.fromRGB(0, 130, 255), Color3.fromRGB(0, 170, 255))
+
+        joinBtn.MouseButton1Click:Connect(function()
+            if data.jobId and data.jobId ~= "" then
+                joinBtn.Text = "⏳"
+                joinBtn.Active = false
+                local success = pcall(function()
+                    TeleportService:TeleportToPlaceInstance(data.placeId, data.jobId, player)
+                end)
+                if not success then
+                    joinBtn.Text = "❌"
+                    joinBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+                    task.wait(1.5)
+                    joinBtn.Text = "انضم"
+                    joinBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
+                    joinBtn.Active = true
+                end
+            end
+        end)
+
+        -- أنيميشن دخول
+        container.BackgroundTransparency = 1
+        for _, child in pairs(container:GetDescendants()) do
+            if child:IsA("TextLabel") then child.TextTransparency = 1 end
+            if child:IsA("ImageLabel") then child.ImageTransparency = 1 end
+            if child:IsA("TextButton") then child.TextTransparency = 1 end
+        end
+
+        task.delay(0.05, function()
+            TweenService:Create(container, TweenInfo.new(0.4), {BackgroundTransparency = 0}):Play()
+            for _, child in pairs(container:GetDescendants()) do
+                if child:IsA("TextLabel") then TweenService:Create(child, TweenInfo.new(0.4), {TextTransparency = 0}):Play() end
+                if child:IsA("ImageLabel") then TweenService:Create(child, TweenInfo.new(0.4), {ImageTransparency = 0}):Play() end
+                if child:IsA("TextButton") then TweenService:Create(child, TweenInfo.new(0.4), {TextTransparency = 0}):Play() end
+            end
+        end)
+
+        task.defer(scrollToBottom)
+    end
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- إرسال الرسائل
+    -- ═══════════════════════════════════════════════════════════════════
+    local function sendNormalMessage()
+        if InputBox.Text == "" then return end
+        local msg = InputBox.Text
+        InputBox.Text = ""
+
+        local payload = HttpService:JSONEncode({
+            username = player.Name,
+            userId = player.UserId,
+            message = msg,
+            isHelpRequest = false
+        })
+
+        task.spawn(function()
+            tryRequest("/update", "POST", payload)
+        end)
+    end
+
+    local function sendHelpRequest()
+        local serverInfo = getCurrentServerInfo()
+
+        local payload = HttpService:JSONEncode({
+            username = player.Name,
+            userId = player.UserId,
+            message = "🚨 طلب فزعه - انضم إلي!",
+            jobId = serverInfo.jobId,
+            placeId = serverInfo.placeId,
+            playerCount = serverInfo.playerCount,
+            maxPlayers = serverInfo.maxPlayers,
+            gameName = serverInfo.gameName,
+            isHelpRequest = true
+        })
+
+        task.spawn(function()
+            tryRequest("/update", "POST", payload)
+        end)
+    end
+
+    SendButton.MouseButton1Click:Connect(sendNormalMessage)
+    HelpButton.MouseButton1Click:Connect(sendHelpRequest)
+
+    InputBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then sendNormalMessage() end
+    end)
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- التصغير والإغلاق
+    -- ═══════════════════════════════════════════════════════════════════
+    local isMinimized = false
+
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        isMinimized = not isMinimized
+        if isMinimized then
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+                Size = UDim2.new(0, 260, 0, 36)
+            }):Play()
+            MessageContainer.Visible = false
+            InputFrame.Visible = false
+            OnlineCounter.Visible = false
+            MinimizeBtn.Text = "+"
+        else
+            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+                Size = UDim2.new(0, 260, 0, 400)
+            }):Play()
+            task.wait(0.25)
+            MessageContainer.Visible = true
+            InputFrame.Visible = true
+            OnlineCounter.Visible = true
+            MinimizeBtn.Text = "−"
+            scrollToBottom()
+        end
+    end)
+
+
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- جلب الرسائل من السيرفر
+    -- ═══════════════════════════════════════════════════════════════════
+    local function fetchMessages()
+        local response = tryRequest("/data", "GET")
+        if not response or not response.Body then return end
+
+        local success, messages = pcall(function()
+            return HttpService:JSONDecode(response.Body)
+        end)
+
+        if not success or type(messages) ~= "table" then return end
+
+        for _, msg in ipairs(messages) do
+            if not lastMessageIds[msg.id] then
+                if msg.isHelpRequest then
+                    addHelpRequestMessage({
+                        username = msg.username,
+                        userId = msg.userId,
+                        placeId = msg.placeId or game.PlaceId,
+                        jobId = msg.jobId,
+                        playerCount = msg.playerCount or 0,
+                        maxPlayers = msg.maxPlayers or 50,
+                        gameName = msg.gameName or "لعبة غير معروفة"
+                    }, msg.id)
+                else
+                    local isOwn = (msg.username == player.Name)
+                    addNormalMessage(msg.username, msg.message, isOwn, msg.id)
+                end
+            end
+        end
+    end
+
+    -- تحديث كل 2 ثانية
+    task.spawn(function()
+        while ScreenGui and ScreenGui.Parent do
+            fetchMessages()
+            task.wait(2)
+        end
+    end)
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- تحديث عداد المتصلين
+    -- ═══════════════════════════════════════════════════════════════════
+    local function updateOnlineCount()
+        task.spawn(function()
+            local response = tryRequest("/online-count", "GET")
+            if not response or not response.Body then return end
+
+            local success, data = pcall(function()
+                return HttpService:JSONDecode(response.Body)
+            end)
+
+            if success and data and data.count then
+                CounterText.Text = data.count .. " متصل"
+            end
+        end)
+    end
+
+    task.spawn(function()
+        while ScreenGui and ScreenGui.Parent do
+            updateOnlineCount()
+            task.wait(10)
+        end
+    end)
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- أنيميشن دخول الواجهة
+    -- ═══════════════════════════════════════════════════════════════════
+    MainFrame.Size = UDim2.new(0, 260, 0, 0)
+    MainFrame.BackgroundTransparency = 1
+
+    TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 260, 0, 400),
+        BackgroundTransparency = 0.06
+    }):Play()
+
+    -- إشعار التحميل
+    StarterGui:SetCore("SendNotification", {
+        Title = "💬 HULM Chat",
+        Text = "تم تحميل الشات العالمية v2.1 (Slim)",
+        Duration = 3
+    })
+
+end
+
+LoadChatScript()
